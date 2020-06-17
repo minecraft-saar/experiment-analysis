@@ -38,7 +38,7 @@ public class AggregateInformation {
             }
         }
         float sum = (float)durations.stream().reduce((long) 0, Long::sum);
-        return roundTwoDecimals(sum / durations.size());
+        return sum / durations.size();
     }
 
     public float getFractionSuccessfulGames() {
@@ -48,7 +48,7 @@ public class AggregateInformation {
                 numSuccessFul++;
             }
         }
-        return roundTwoDecimals((float)numSuccessFul / games.size());
+        return (float)numSuccessFul / games.size();
     }
 
     public float getAverageNumMistakes() {
@@ -57,7 +57,7 @@ public class AggregateInformation {
             // TODO: count all games or only successful games?
             totalMistakes += info.getNumMistakes();
         }
-        return roundTwoDecimals((float)totalMistakes / games.size());
+        return (float)totalMistakes / games.size();
     }
 
     public float getAverageNumBlocksPlaced() {
@@ -66,7 +66,7 @@ public class AggregateInformation {
             // TODO: count all games or only successful games?
             totalBlocks += info.getNumBlocksPlaced();
         }
-        return roundTwoDecimals((float)totalBlocks / games.size());
+        return (float)totalBlocks / games.size();
     }
 
     public float getAverageNumBlocksDestroyed() {
@@ -75,7 +75,7 @@ public class AggregateInformation {
             // TODO: count all games or only successful games?
             totalBlocks += info.getNumBlocksDestroyed();
         }
-        return roundTwoDecimals( (float)totalBlocks / games.size() );
+        return (float)totalBlocks / games.size();
     }
 
     /**
@@ -90,7 +90,7 @@ public class AggregateInformation {
                 withMistakes++;
             }
         }
-        return roundTwoDecimals((float)withMistakes / games.size());
+        return (float)withMistakes / games.size();
     }
 
     public HashMap<Integer,Integer> getMistakeDistribution() {
@@ -102,10 +102,10 @@ public class AggregateInformation {
         return distribution;
     }
 
-    private float roundTwoDecimals(float d) {
-        DecimalFormat twoDForm = new DecimalFormat("#.##");
-        return Float.parseFloat(twoDForm.format(d));
-    }
+   // private float roundTwoDecimals(float d) {
+    //    DecimalFormat twoDForm = new DecimalFormat("#.##");
+     //   return Float.parseFloat(twoDForm.format(d));
+    //}
 
     public List<Answer> getAnswerDistribution() {
 //        HashMap<String, List<Integer>> collection = new HashMap<>();
@@ -198,14 +198,13 @@ public class AggregateInformation {
         likert.append("| Question | Mean | Standard Deviation | Median | Minimum | Maximum |\n");
         likert.append("| -------- | ----:| ------------------:| ------:| -------:| -------:|\n");
         for (Answer answer: getAnswerDistribution()){
-            likert.append("| ").append(answer.getQuestion());
-            likert.append(" | ").append(answer.getMean());
-            likert.append(" | ").append(answer.getStdDeviation());
-            likert.append(" | ").append(answer.getMedian());
-            likert.append(" | ").append(answer.getMinimum());
-            likert.append(" | ").append(answer.getMaximum());
-            likert.append("| \n");
-
+            likert.append (String.format("%s | %f.2 | %f.2 | %d | %d | %d |\n",
+                    answer.getQuestion(),
+                    answer.getMean(),
+                    answer.getStdDeviation(),
+                    answer.getMedian(),
+                    answer.getMinimum(),
+                    answer.getMaximum()));
         }
         writer.write(likert.toString());
         StringBuilder free = new StringBuilder("\n\n# Free-form Questions");
@@ -245,13 +244,11 @@ public class AggregateInformation {
         }
 
         public double getMean() {
-            DecimalFormat twoDForm = new DecimalFormat("#.##");
-            return Double.parseDouble(twoDForm.format(mean));
+            return mean;
         }
 
         public double getStdDeviation() {
-            DecimalFormat twoDForm = new DecimalFormat("#.##");
-            return Double.parseDouble(twoDForm.format(stdDeviation));
+            return stdDeviation;
         }
 
         public int getMedian() {
