@@ -176,19 +176,19 @@ public class AggregateInformation {
     public void writeAnalysis(File file) throws IOException {
         FileWriter writer = new FileWriter(file);
 
-        String overview = "# Overview" + "\nNumber of games: " +
+        String overview = "# Overview" + "\n - Number of games: " +
                 getNumGames() +
-                "\nAverage game duration: " +
+                "\n - Average game duration: " +
                 getAverageGameDuration() +
-                "\nFraction of successful games: " +
+                "\n - Fraction of successful games: " +
                 getFractionSuccessfulGames() +
-                "\nFraction of players making a mistake: " +
+                "\n - Fraction of players making a mistake: " +
                 getFractionMistakes() +
-                "\nAverage number of mistakes: " +
+                "\n - Average number of mistakes: " +
                 getAverageNumMistakes() +
-                "\nAverage number of blocks placed: " +
+                "\n - Average number of blocks placed: " +
                 getAverageNumBlocksPlaced() +
-                "\nAverage number of blocks destroyed: " +
+                "\n - Average number of blocks destroyed: " +
                 getAverageNumBlocksDestroyed() +
                 "\n\n";
         writer.write(overview);
@@ -204,7 +204,7 @@ public class AggregateInformation {
             likert.append(" | ").append(answer.getMedian());
             likert.append(" | ").append(answer.getMinimum());
             likert.append(" | ").append(answer.getMaximum());
-            likert.append("\n");
+            likert.append("| \n");
 
         }
         writer.write(likert.toString());
