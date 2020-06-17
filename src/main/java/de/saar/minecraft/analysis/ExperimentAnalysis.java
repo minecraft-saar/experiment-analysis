@@ -20,12 +20,16 @@ import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 
 public class ExperimentAnalysis {
 
     private static final Logger logger = LogManager.getLogger(ExperimentAnalysis.class);
     private AnalysisConfiguration config;
     private DSLContext jooq;
+    private List<String> scenarios;
+    private List<String> architects;
+    private List<GameInformation> gameInformations;
 
     public ExperimentAnalysis(AnalysisConfiguration config) {
         this.config = config;
@@ -44,6 +48,18 @@ public class ExperimentAnalysis {
         } catch (SQLException e) {
             logger.error(e.getMessage());
         }
+        scenarios = jooq.selectDistinct(Tables.GAMES.SCENARIO)
+                .from(Tables.GAMES)
+                .fetch(Tables.GAMES.SCENARIO);
+        architects = jooq.selectDistinct(Tables.GAMES.ARCHITECT_INFO)
+                .from(Tables.GAMES)
+                .fetch(Tables.GAMES.ARCHITECT_INFO);
+        gameInformations = jooq.selectFrom(Tables.GAMES)
+                .orderBy(Tables.GAMES.ID.asc())
+                .fetchStream()
+                .map((x) -> new GameInformation(x.getId(), jooq))
+                .collect(Collectors.toList());
+        System.out.println(gameInformations.size());
     }
 
     public void makeAnalysis() throws IOException {
@@ -59,14 +75,8 @@ public class ExperimentAnalysis {
         makeArchitectAnalysis();
      }
 
+
     public void makeScenarioAnalysis() throws IOException {
-        Result<Record1<String>> result = jooq.selectDistinct(Tables.GAMES.SCENARIO)
-                .from(Tables.GAMES)
-                .fetch();
-        List<String> scenarios = new ArrayList<>();
-        for (var record: result) {
-            scenarios.add(record.get(Tables.GAMES.SCENARIO));
-        }
         Path basePath = Paths.get(config.getDirName(), "per_scenario");
         if (!basePath.toFile().isDirectory() && !basePath.toFile().mkdir()) {
             logger.error("Could not create directory " + basePath.toString());
@@ -74,7 +84,11 @@ public class ExperimentAnalysis {
         }
         for (String scenario: scenarios) {
 
-            var info = new ScenarioInformation(scenario, this.jooq);
+            var info = new AggregateInformation(
+                    gameInformations
+                            .stream()
+                            .filter((x) -> x.getScenario().equals(scenario))
+                            .collect(Collectors.toList()));
             String currentFileName = String.format("scenario-details-%s.md", scenario);
             File file = new File(String.valueOf(basePath), currentFileName);
             info.writeAnalysis(file);
@@ -82,19 +96,16 @@ public class ExperimentAnalysis {
     }
 
     public void makeArchitectAnalysis() throws IOException {
-        Result<Record1<String>> result = jooq.selectDistinct(Tables.GAMES.ARCHITECT_INFO)
-                .from(Tables.GAMES)
-                .fetch();
-        List<String> architects = new ArrayList<>();
-        for (var record: result) {
-            architects.add(record.get(Tables.GAMES.ARCHITECT_INFO));
-        }
         Path basePath = Paths.get(config.getDirName(), "per_architect");
         if (!basePath.toFile().isDirectory() && !basePath.toFile().mkdir()) {
             throw new IOException("Could not create directory " + basePath.toString());
         }
         for (String arch: architects) {
-            var info = new ArchitectInformation(arch, this.jooq);
+            var info = new AggregateInformation(
+                    gameInformations
+                            .stream()
+                            .filter((x) -> x.getArchitect().equals(arch))
+                            .collect(Collectors.toList()));
             String currentFileName = String.format("architect-details-%s.md", arch);
             File file = new File(String.valueOf(basePath), currentFileName);
             info.writeAnalysis(file);

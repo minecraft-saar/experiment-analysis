@@ -8,6 +8,10 @@ import static java.time.temporal.ChronoUnit.SECONDS;
 import de.saar.minecraft.broker.db.Tables;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.stream.Collectors;
+
+import org.apache.commons.lang3.math.NumberUtils;
+import org.apache.commons.math3.util.Pair;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jooq.DSLContext;
@@ -60,6 +64,26 @@ public class GameInformation {
             .where(GAME_LOGS.GAMEID.eq(gameId))
             .and(GAME_LOGS.MESSAGE.contains("Not there! please remove that block again"))
             .fetchOne(0, int.class);
+    }
+
+    public List<Pair<String, Integer>> getNumericQuestions() {
+        return jooq.selectFrom(Tables.QUESTIONNAIRES)
+                .where(Tables.QUESTIONNAIRES.GAMEID.equal(gameId))
+                .orderBy(Tables.QUESTIONNAIRES.ID.asc())
+                .fetchStream()
+                .filter((row) -> NumberUtils.isDigits(row.getAnswer()))
+                .map((row) -> new Pair<>(row.getQuestion(), Integer.parseInt(row.getAnswer())))
+                .collect(Collectors.toList());
+    }
+
+    public List<Pair<String, String>> getFreeformQuestions() {
+        return jooq.selectFrom(Tables.QUESTIONNAIRES)
+                .where(Tables.QUESTIONNAIRES.GAMEID.equal(gameId))
+                .orderBy(Tables.QUESTIONNAIRES.ID.asc())
+                .fetchStream()
+                .filter((row) -> ! NumberUtils.isDigits(row.getAnswer()))
+                .map((row) -> new Pair<>(row.getQuestion(), row.getAnswer()))
+                .collect(Collectors.toList());
     }
 
     /**

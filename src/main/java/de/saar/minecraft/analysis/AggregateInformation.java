@@ -15,6 +15,7 @@ import java.util.Map;
 
 import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.commons.math3.stat.descriptive.DescriptiveStatistics;
+import org.apache.commons.math3.util.Pair;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jooq.DSLContext;
@@ -23,6 +24,15 @@ import org.jooq.Result;
 public class AggregateInformation {
     DSLContext jooq;
     List<GameInformation> games;
+
+    /**
+     * Should probably be deprecated
+     */
+    protected AggregateInformation() {}
+
+    public AggregateInformation(List<GameInformation> games) {
+        this.games = games;
+    }
 
     private static final Logger logger = LogManager.getLogger(AggregateInformation.class);
 
@@ -102,43 +112,22 @@ public class AggregateInformation {
         return distribution;
     }
 
-   // private float roundTwoDecimals(float d) {
-    //    DecimalFormat twoDForm = new DecimalFormat("#.##");
-     //   return Float.parseFloat(twoDForm.format(d));
-    //}
-
     public List<Answer> getAnswerDistribution() {
-//        HashMap<String, List<Integer>> collection = new HashMap<>();
         HashMap<String, DescriptiveStatistics> collection = new HashMap<>();
 
         for (GameInformation info: games) {
-            int gameId = info.gameId;
-            Result<QuestionnairesRecord> questionnaire = jooq.selectFrom(Tables.QUESTIONNAIRES)
-                .where(Tables.QUESTIONNAIRES.GAMEID.equal(gameId))
-                .orderBy(Tables.QUESTIONNAIRES.ID.asc())
-                .fetch();
             // collect
-            for (QuestionnairesRecord row: questionnaire) {
+            for (Pair<String, Integer> qa: info.getNumericQuestions()) {
                 int currentAnswer;
                 // only include numeric answers
-                if (NumberUtils.isDigits(row.getAnswer())) {
-                    currentAnswer = Integer.parseInt(row.getAnswer());
-                    String question = row.getQuestion();
-                    collection.putIfAbsent(question, new DescriptiveStatistics());
-                    collection.get(question).addValue(currentAnswer);
-                }
+                collection.putIfAbsent(qa.getFirst(), new DescriptiveStatistics());
+                collection.get(qa.getFirst()).addValue(qa.getSecond());
             }
         }
 
         // compute distribution
         List<Answer> distribution = new ArrayList<>();
         for (String question: collection.keySet()) {
-//            List<Integer> rawAnswers = collection.get(question);
-//            float average = (float)rawAnswers.stream().reduce(0, Integer::sum) / rawAnswers.size();
-//            int mode;
-//            int median;
-//            int minimum = rawAnswers.stream().reduce(100, Integer::min);
-//            int maximum = rawAnswers.stream().reduce(0, Integer::max);;
 
             DescriptiveStatistics statistics = collection.get(question);
             double mean = statistics.getGeometricMean();
@@ -154,19 +143,12 @@ public class AggregateInformation {
     public HashMap<String,List<String>> getAllFreeTextResponses() {
         HashMap<String, List<String>> collection = new HashMap<>();
         for (GameInformation info: games) {
-            int gameId = info.gameId;
-            Result<QuestionnairesRecord> questionnaire = jooq.selectFrom(Tables.QUESTIONNAIRES)
-                .where(Tables.QUESTIONNAIRES.GAMEID.equal(gameId))
-                .orderBy(Tables.QUESTIONNAIRES.ID.asc())
-                .fetch();
-            for (QuestionnairesRecord row : questionnaire) {
-                if (!NumberUtils.isDigits(row.getAnswer())) {
-                    String answer = row.getAnswer();
-                    String question = row.getQuestion();
-                    collection.putIfAbsent(question, new ArrayList<>());
-                    if (!answer.isEmpty()) {
-                        collection.get(question).add(answer);
-                    }
+            for (Pair<String, String> qa : info.getFreeformQuestions()) {
+                var question = qa.getFirst();
+                var answer = qa.getSecond();
+                collection.putIfAbsent(question, new ArrayList<>());
+                if (!answer.isEmpty()) {
+                    collection.get(question).add(answer);
                 }
             }
         }
