@@ -161,8 +161,26 @@ public class GameInformation {
             .fetchAny(GAME_LOGS.TIMESTAMP);
     }
 
-    public List<Integer> getDurationPerInstruction() {
+    /**
+     * Returns the times in ms between each block placed event (regardless of the instructions).
+     */
+    public List<Integer> getBlockPlacedDurations() {
+        return null;
+    }
+    /**
+     * Returns the instructions given to the user and the time in ms it took the user to complete
+     * this instruction, e.g. [("wall", 8000), ("wall", 5000), ...] or [("block", 300), ... ("wall", 4000)]
+     * (This is low prio for now, the other two are more important)
+     */
+    public List<Pair<String, Integer>> getDurationPerInstruction() {
         return null;
     }
 
+    /**
+     * Returns the time the user needed to build each HLO in the scenario, i.e. the walls
+     * in the house scenario and the floor and railings in the bridge scenario.
+     * e.g. [("wall", 8000), ("wall", 5000), ...] or [("floor", 3000), ... ("railing", 4000)]
+     * Regardless of whether it was instructed per block or as a HLO.
+     */
+    public List<Pair<String, Integer>> getDurationPerHLO() {return null;}
 }
