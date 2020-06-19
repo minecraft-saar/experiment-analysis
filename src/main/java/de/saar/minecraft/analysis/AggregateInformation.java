@@ -52,13 +52,13 @@ public class AggregateInformation {
     }
 
     public float getFractionSuccessfulGames() {
-        int numSuccessFul = 0;
+        int numSuccessFull = 0;
         for (GameInformation info: games) {
             if (info.wasSuccessful()) {
-                numSuccessFul++;
+                numSuccessFull++;
             }
         }
-        return (float)numSuccessFul / games.size();
+        return (float)numSuccessFull / games.size();
     }
 
     public float getAverageNumMistakes() {

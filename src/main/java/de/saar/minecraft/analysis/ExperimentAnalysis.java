@@ -73,8 +73,24 @@ public class ExperimentAnalysis {
         }
         makeScenarioAnalysis();
         makeArchitectAnalysis();
+
+        for (var scenario: scenarios) {
+            for (var architect: architects) {
+                var gamedata = gameInformations.stream()
+                        .filter((gi) -> gi.getArchitect().equals(architect))
+                        .filter((gi) -> gi.getScenario().equals(scenario))
+                        .collect(Collectors.toList());
+                makeAnalysis(scenario + "-" + architect, gamedata);
+            }
+        }
+
      }
 
+     public void makeAnalysis(String analysisName, List<GameInformation> gi) throws IOException {
+            File file = new File(config.getDirName(), analysisName);
+            var info = new AggregateInformation(gi);
+            info.writeAnalysis(file);
+     }
 
     public void makeScenarioAnalysis() throws IOException {
         Path basePath = Paths.get(config.getDirName(), "per_scenario");
