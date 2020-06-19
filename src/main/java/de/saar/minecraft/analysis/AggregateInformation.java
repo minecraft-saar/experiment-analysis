@@ -12,6 +12,8 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collector;
+import java.util.stream.Collectors;
 
 import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.commons.math3.stat.descriptive.DescriptiveStatistics;
@@ -155,6 +157,34 @@ public class AggregateInformation {
         return collection;
     }
 
+    public List<Pair<String,Integer>> getAverageDurationPerHLO() {
+        // TODO: only works if all games have the same scenario
+        List<Pair<String, List<Integer>>> addedDurations = new ArrayList<>();
+        for (GameInformation info: games) {
+            if (!info.wasSuccessful()) {
+                continue;
+            }
+            var current = info.getDurationPerHLO();
+            if (addedDurations.isEmpty()) {
+                addedDurations = current.stream().map((x -> new Pair<String, List<Integer>>(x.getFirst(), new ArrayList<>()))).collect(Collectors.toList());
+            }
+            for (int i = 0; i < current.size(); i++) {
+                String objectName = current.get(i).getFirst();
+                int newDuration = current.get(i).getSecond();
+                if (!addedDurations.get(i).getFirst().equals(objectName)){
+                    logger.error("wrong high-level object");
+                }
+                var durations = addedDurations.get(i).getSecond();
+                durations.add(newDuration);
+//                addedDurations.set(i, new Pair<>(objectName, oldDuration + newDuration ));
+//                logger.info("old Duration {}", oldDuration);
+//                logger.info(addedDurations.get(i).getSecond());
+            }
+        }
+        return addedDurations.stream().map((x) -> new Pair<>(x.getFirst(),
+                (x.getSecond().stream().reduce(0, Integer::sum)) / x.getSecond().size())).collect(Collectors.toList());
+    }
+
     public void writeAnalysis(File file) throws IOException {
         FileWriter writer = new FileWriter(file);
 
@@ -200,6 +230,12 @@ public class AggregateInformation {
         }
         writer.write(free.toString());
         writer.flush();
+        StringBuilder hloDurations = new StringBuilder("\n\n# Average Duration per HLO");
+        for (var duration: getAverageDurationPerHLO()) {
+            hloDurations.append("\n - ").append(duration.getFirst());
+            hloDurations.append(": ").append(duration.getSecond());
+        }
+        writer.write(hloDurations.toString());
         writer.close();
     }
 

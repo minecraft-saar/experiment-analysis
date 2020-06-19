@@ -16,9 +16,12 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.sql.Connection;
+import java.sql.Driver;
 import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.util.ArrayList;
+import java.util.Enumeration;
+import java.util.Iterator;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -59,7 +62,6 @@ public class ExperimentAnalysis {
                 .fetchStream()
                 .map((x) -> new GameInformation(x.getId(), jooq))
                 .collect(Collectors.toList());
-        System.out.println(gameInformations.size());
     }
 
     public void makeAnalysis() throws IOException {
@@ -73,6 +75,7 @@ public class ExperimentAnalysis {
         }
         makeScenarioAnalysis();
         makeArchitectAnalysis();
+//        makeGameAnalyses();
      }
 
 
@@ -110,6 +113,18 @@ public class ExperimentAnalysis {
             File file = new File(String.valueOf(basePath), currentFileName);
             info.writeAnalysis(file);
         }
-
     }
+
+    public void makeGameAnalyses() throws IOException {
+        Path basePath = Paths.get(config.getDirName(), "per_game");
+        if (!basePath.toFile().isDirectory() && !basePath.toFile().mkdir()) {
+            throw new IOException("Could not create directory " + basePath.toString());
+        }
+        for (GameInformation info: gameInformations) {
+            String filename = String.format("game-%d.md", info.gameId);
+            File file = new File(basePath.toString(), filename);
+            info.writeAnalysis(file);
+        }
+    }
+
 }
