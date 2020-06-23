@@ -75,25 +75,59 @@ public class ExperimentAnalysis {
         }
         makeScenarioAnalysis();
         makeArchitectAnalysis();
-//        makeGameAnalyses();
+        makeGameAnalyses();
 
         for (var scenario: scenarios) {
             for (var architect: architects) {
                 var gamedata = gameInformations.stream()
-                        .filter((gi) -> gi.getArchitect().equals(architect))
+                        .filter((gi) -> {
+                            if (gi.getArchitect() == null) {
+                                return false;
+                            }
+                            return gi.getArchitect().equals(architect);
+                        })
                         .filter((gi) -> gi.getScenario().equals(scenario))
                         .collect(Collectors.toList());
-                makeAnalysis(scenario + "-" + architect, gamedata);
+                makeAnalysis(scenario + "-" + architect + ".md", gamedata);
             }
         }
 
-     }
+    }
 
-     public void makeAnalysis(String analysisName, List<GameInformation> gi) throws IOException {
-            File file = new File(config.getDirName(), analysisName);
-            var info = new AggregateInformation(gi);
-            info.writeAnalysis(file);
-     }
+    public void makePartialAnalysis(String scenario, String architect, boolean onlySuccessful) throws IOException {
+        List<GameInformation> gamedata = gameInformations;
+        logger.info(gamedata.size());
+        if (architect != null) {
+            gamedata = gamedata.stream()
+                    .filter((gi) -> {
+                        if (gi.getArchitect() == null) {
+                            return false;
+                        }
+                        return gi.getArchitect().equals(architect);
+                    })
+                    .collect(Collectors.toList());
+        }
+        logger.info(gamedata.size());
+        if (scenario != null) {
+            gamedata = gamedata.stream()
+                    .filter((gi) -> gi.getScenario().equals(scenario))
+                    .collect(Collectors.toList());
+        }
+        logger.info(gamedata.size());
+        if (onlySuccessful) {
+            gamedata = gamedata.stream()
+                    .filter(GameInformation::wasSuccessful)
+                    .collect(Collectors.toList());
+        }
+        logger.info(gamedata.size());
+        makeAnalysis(scenario + "-" + architect + "-" + onlySuccessful + ".md", gamedata);
+    }
+
+    public void makeAnalysis(String analysisName, List<GameInformation> gi) throws IOException {
+        File file = new File(config.getDirName(), analysisName);
+        var info = new AggregateInformation(gi);
+        info.writeAnalysis(file);
+    }
 
     public void makeScenarioAnalysis() throws IOException {
         Path basePath = Paths.get(config.getDirName(), "per_scenario");
@@ -123,7 +157,12 @@ public class ExperimentAnalysis {
             var info = new AggregateInformation(
                     gameInformations
                             .stream()
-                            .filter((x) -> x.getArchitect().equals(arch))
+                            .filter((x) -> {
+                                if (x.getArchitect() == null) {
+                                    return false;
+                                }
+                                return x.getArchitect().equals(arch);
+                            })
                             .collect(Collectors.toList()));
             String currentFileName = String.format("architect-details-%s.md", arch);
             File file = new File(String.valueOf(basePath), currentFileName);

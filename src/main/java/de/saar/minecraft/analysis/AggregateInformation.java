@@ -66,7 +66,6 @@ public class AggregateInformation {
     public float getAverageNumMistakes() {
         int totalMistakes = 0;
         for (GameInformation info: games) {
-            // TODO: count all games or only successful games?
             totalMistakes += info.getNumMistakes();
         }
         return (float)totalMistakes / games.size();
@@ -75,7 +74,6 @@ public class AggregateInformation {
     public float getAverageNumBlocksPlaced() {
         int totalBlocks = 0;
         for (GameInformation info: games) {
-            // TODO: count all games or only successful games?
             totalBlocks += info.getNumBlocksPlaced();
         }
         return (float)totalBlocks / games.size();
@@ -84,7 +82,6 @@ public class AggregateInformation {
     public float getAverageNumBlocksDestroyed() {
         int totalBlocks = 0;
         for (GameInformation info: games) {
-            // TODO: count all games or only successful games?
             totalBlocks += info.getNumBlocksDestroyed();
         }
         return (float)totalBlocks / games.size();
@@ -97,7 +94,6 @@ public class AggregateInformation {
     public float getFractionMistakes() {
         int withMistakes = 0;
         for (GameInformation info: games) {
-            // TODO: count all games or only successful games?
             if (info.getNumMistakes() > 0) {
                 withMistakes++;
             }
@@ -166,7 +162,9 @@ public class AggregateInformation {
             }
             var current = info.getDurationPerHLO();
             if (addedDurations.isEmpty()) {
-                addedDurations = current.stream().map((x -> new Pair<String, List<Integer>>(x.getFirst(), new ArrayList<>()))).collect(Collectors.toList());
+                addedDurations = current.stream()
+                        .map((x -> new Pair<String, List<Integer>>(x.getFirst(), new ArrayList<>())))
+                        .collect(Collectors.toList());
             }
             for (int i = 0; i < current.size(); i++) {
                 String objectName = current.get(i).getFirst();
@@ -176,13 +174,12 @@ public class AggregateInformation {
                 }
                 var durations = addedDurations.get(i).getSecond();
                 durations.add(newDuration);
-//                addedDurations.set(i, new Pair<>(objectName, oldDuration + newDuration ));
-//                logger.info("old Duration {}", oldDuration);
-//                logger.info(addedDurations.get(i).getSecond());
             }
         }
-        return addedDurations.stream().map((x) -> new Pair<>(x.getFirst(),
-                (x.getSecond().stream().reduce(0, Integer::sum)) / x.getSecond().size())).collect(Collectors.toList());
+        return addedDurations.stream()
+                .map((x) -> new Pair<>(
+                        x.getFirst(),(x.getSecond().stream().reduce(0, Integer::sum)) / x.getSecond().size()))
+                .collect(Collectors.toList());
     }
 
     public void writeAnalysis(File file) throws IOException {
@@ -205,12 +202,19 @@ public class AggregateInformation {
                 "\n\n";
         writer.write(overview);
 
+        StringBuilder gameList = new StringBuilder("\nGames in this category\n");
+        for (GameInformation gi: games) {
+            gameList.append(gi.gameId).append(", ");
+        }
+        writer.write(gameList.toString());
+
+
         StringBuilder likert = new StringBuilder("\n\n# Likert Questions\n");
 
         likert.append("| Question | Mean | Standard Deviation | Median | Minimum | Maximum |\n");
         likert.append("| -------- | ----:| ------------------:| ------:| -------:| -------:|\n");
         for (Answer answer: getAnswerDistribution()){
-            likert.append (String.format("%s | %f.2 | %f.2 | %d | %d | %d |\n",
+            likert.append (String.format("%s | %.2f | %.2f | %d | %d | %d |\n",
                     answer.getQuestion(),
                     answer.getMean(),
                     answer.getStdDeviation(),

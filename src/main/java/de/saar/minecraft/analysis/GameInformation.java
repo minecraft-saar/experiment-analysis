@@ -65,19 +65,29 @@ public class GameInformation {
                 .fetchOne(GAMES.CLIENT_IP);
     }
 
+    /**
+     *
+     * @return number of blocks placed before the experiment was successful
+     */
     public int getNumBlocksPlaced() {
         return jooq.selectCount()
             .from(GAME_LOGS)
             .where(GAME_LOGS.GAMEID.eq(gameId))
             .and(GAME_LOGS.MESSAGE_TYPE.eq("BlockPlacedMessage"))
+            .and(GAME_LOGS.TIMESTAMP.lessOrEqual(getSuccessTime()))
             .fetchOne(0, int.class);
     }
 
+    /**
+     *
+     * @return number of blocks destroyed before the experiment was successful
+     */
     public int getNumBlocksDestroyed() {
         return jooq.selectCount()
             .from(GAME_LOGS)
             .where(GAME_LOGS.GAMEID.eq(gameId))
             .and(GAME_LOGS.MESSAGE_TYPE.eq("BlockDestroyedMessage"))
+            .and(GAME_LOGS.TIMESTAMP.lessOrEqual(getSuccessTime()))
             .fetchOne(0, int.class);
     }
 
@@ -195,12 +205,15 @@ public class GameInformation {
                 .orderBy(GAME_LOGS.ID.asc())
                 .fetch();
 
+
         List<Integer> durations = new ArrayList<>();
-        // add duration until first block placed
-        durations.add((int)getStartTime().until(result.getValue(0, GAME_LOGS.TIMESTAMP), MILLIS));
-        for (int i = 1; i < result.size(); i++) {
-            durations.add((int)result.getValue(i - 1, GAME_LOGS.TIMESTAMP)
-                    .until(result.getValue(i, GAME_LOGS.TIMESTAMP), MILLIS));
+        if (result.isNotEmpty()) {
+            // add duration until first block placed
+            durations.add((int) getStartTime().until(result.getValue(0, GAME_LOGS.TIMESTAMP), MILLIS));
+            for (int i = 1; i < result.size(); i++) {
+                durations.add((int) result.getValue(i - 1, GAME_LOGS.TIMESTAMP)
+                        .until(result.getValue(i, GAME_LOGS.TIMESTAMP), MILLIS));
+            }
         }
         return durations;
     }
@@ -294,6 +307,7 @@ public class GameInformation {
 
     public void writeAnalysis(File file) throws IOException {
         FileWriter writer = new FileWriter(file);
+        boolean wasSuccessful = wasSuccessful();
         String overview = "# Overview" +
                 "\n - Connection from: " +
                 getClientIp() +
@@ -304,19 +318,19 @@ public class GameInformation {
                 "\n - Architect: " +
                 getArchitect() +
                 "\n - Successful: " +
-                wasSuccessful() +
+                wasSuccessful +
                 "\n\n## Times\n" +
                 "\n - Start Time: " +
                 getStartTime() +
                 "\n - Success Time: " +
-                getSuccessTime() +
+                (wasSuccessful ? getSuccessTime() : "not applicable") +
                 "\n - End Time: " +
                 getEndTime() +
                 "\n - Experiment Duration: " +
-                getTimeToSuccess() +
-                "\n - Total time logged in " +
+                (wasSuccessful ? getTimeToSuccess() + " seconds" : "not applicable") +
+                "\n - Total time logged in: " +
                 getTotalTime() +
-                "\n\n## Blocks\n" +
+                "seconds\n\n## Blocks\n" +
                 "\n - Number of blocks placed: " +
                 getNumBlocksPlaced() +
                 "\n - Number of blocks destroyed: " +

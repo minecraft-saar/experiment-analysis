@@ -19,8 +19,9 @@ public class Main {
             logger.error("Configuration file not found. {}", e.getMessage());
             return;
         }
-        var x = new ExperimentAnalysis(config);
-        x.makeAnalysis();
+        var experimentAnalysis = new ExperimentAnalysis(config);
+        experimentAnalysis.makeAnalysis();
+//        experimentAnalysis.makePartialAnalysis("bridge", "SimpleArchitect-MEDIUM", false);
     }
 
 }
