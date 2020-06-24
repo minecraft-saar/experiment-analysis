@@ -76,6 +76,7 @@ public class ExperimentAnalysis {
         makeScenarioAnalysis();
         makeArchitectAnalysis();
         makeGameAnalyses();
+        saveAsCSV();
 
         for (var scenario: scenarios) {
             for (var architect: architects) {
@@ -182,4 +183,17 @@ public class ExperimentAnalysis {
         }
     }
 
+    /**
+     * Saves all game data into a CSV file "data.csv".
+     * @throws IOException
+     */
+    public void saveAsCSV() throws IOException {
+        File file = new File(config.getDirName(), "data.csv");
+        // only save complete games with questionnaire
+        var gi = gameInformations.stream()
+                .filter((x) -> ! x.getNumericQuestions().isEmpty() )
+                .collect(Collectors.toList());
+        var info = new AggregateInformation(gi);
+        info.saveCSV(file);
+    }
 }

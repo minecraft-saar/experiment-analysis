@@ -16,6 +16,7 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -35,12 +36,87 @@ import org.jooq.tools.json.JSONObject;
 public class GameInformation {
     int gameId;
     DSLContext jooq;
+    /** The ID of the log message showing that the user was successful.*/
+    final long successMessageID;
 
     private static final Logger logger = LogManager.getLogger(GameInformation.class);
 
     public GameInformation(int gameId, DSLContext jooq) {
         this.gameId = gameId;
         this.jooq = jooq;
+        Long mid = jooq.select(GAME_LOGS.ID)
+            .from(GAME_LOGS)
+            .where(GAME_LOGS.GAMEID.eq(gameId))
+            .and(GAME_LOGS.MESSAGE.contains("\"newGameState\": \"SuccessfullyFinished\""))
+            .fetchOne(GAME_LOGS.ID);
+        if (mid == null) {
+            successMessageID = Long.MAX_VALUE;
+        } else {
+            successMessageID = mid;
+        }
+    }
+
+    public  String getCSVHeader(String separator) {
+        var sb = new StringBuilder();
+        int qnum = 0;
+        for (var qa: getNumericQuestions()
+                .stream()
+                .sorted(Comparator.comparing(Pair::getFirst))
+                .collect(Collectors.toList())) {
+            sb.append("# Question"+qnum+": ")
+                    .append(qa.getFirst())
+                    .append("\n");
+            qnum += 1;
+        }
+        sb.append("scenario")
+          .append(separator)
+          .append("architect")
+          .append(separator)
+          .append("wasSuccessful")
+          .append(separator)
+          .append("timeToSuccess")
+          .append(separator)
+          .append("numBlocksPlaced")
+          .append(separator)
+          .append("numBlocksDestroyed")
+          .append(separator)
+          .append("numMistakes");
+        for (int i = 0; i < getNumericQuestions().size(); i++) {
+            sb.append(separator).append("Question").append(i);
+        }
+        return sb.append("\n").toString();
+    }
+    /**
+     * Returns Scenario Architect wassucessful timetosuccess numblocksplaced numblocksdestroyed nummistakes answers
+     * @param separator the separator of the fields
+     */
+    public String getCSVLine(String separator) {
+        var sb = new StringBuilder()
+                .append(getScenario())
+                .append(separator)
+                .append(getArchitect())
+                .append(separator)
+                .append(wasSuccessful())
+                .append(separator);
+        try { // only a valid time if actually successful
+            sb.append(getTimeToSuccess());
+        } catch (AssertionError e) {
+            sb.append("NaN");
+        }
+        sb.append(separator)
+                 .append(getNumBlocksPlaced())
+                 .append(separator)
+                 .append(getNumBlocksDestroyed())
+                 .append(separator)
+                 .append(getNumMistakes());
+
+        getNumericQuestions().stream().sorted(Comparator.comparing(Pair::getFirst)).forEach(
+                (x) -> {
+                    sb.append(separator);
+                    sb.append(x.getSecond());
+                }
+        );
+        return sb.append("\n").toString();
     }
 
     public String getScenario() {
@@ -79,6 +155,7 @@ public class GameInformation {
         return jooq.selectCount()
             .from(GAME_LOGS)
             .where(GAME_LOGS.GAMEID.eq(gameId))
+            .and(GAME_LOGS.ID.lessOrEqual(successMessageID))
             .and(GAME_LOGS.MESSAGE_TYPE.eq("BlockPlacedMessage"))
             .and(GAME_LOGS.TIMESTAMP.lessOrEqual(getSuccessTime()))
             .fetchOne(0, int.class);
@@ -92,6 +169,7 @@ public class GameInformation {
         return jooq.selectCount()
             .from(GAME_LOGS)
             .where(GAME_LOGS.GAMEID.eq(gameId))
+            .and(GAME_LOGS.ID.lessOrEqual(successMessageID))
             .and(GAME_LOGS.MESSAGE_TYPE.eq("BlockDestroyedMessage"))
             .and(GAME_LOGS.TIMESTAMP.lessOrEqual(getSuccessTime()))
             .fetchOne(0, int.class);
@@ -101,6 +179,7 @@ public class GameInformation {
         return jooq.selectCount()
             .from(GAME_LOGS)
             .where(GAME_LOGS.GAMEID.eq(gameId))
+            .and(GAME_LOGS.ID.lessOrEqual(successMessageID))
             .and(GAME_LOGS.MESSAGE.contains("Not there! please remove that block again"))
             .fetchOne(0, int.class);
     }
@@ -130,12 +209,7 @@ public class GameInformation {
      * @return True if the game was successfully finished, false if stopped early
      */
     public boolean wasSuccessful() {
-        var selection = jooq.select()
-            .from(GAME_LOGS)
-            .where(GAME_LOGS.GAMEID.eq(gameId))
-            .and(GAME_LOGS.MESSAGE.contains("\"newGameState\": \"SuccessfullyFinished\""))
-            .fetch();
-        return (!selection.isEmpty());
+        return successMessageID < Long.MAX_VALUE;
     }
 
     /**
