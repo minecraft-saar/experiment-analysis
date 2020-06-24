@@ -1,0 +1,187 @@
+---
+title: "R Notebook"
+output:
+  html_document:
+    df_print: paged
+  html_notebook: default
+  pdf_document: default
+---
+
+```{r}
+library(dplyr);
+library(boot);
+library(broom);
+library(knitr);
+library(ggplot2);
+data <- read.csv("analysis/data.csv", comment.char ="#");
+data[data=="true"] <- 1;
+data[data=="false"] <- 0;
+data <- transform(data, wasSuccessful = as.numeric(wasSuccessful))
+boot_mean <- function(original_vector, resample_vector) {
+    mean(original_vector[resample_vector])
+}
+```
+
+```{r}
+questions<-list(
+"I had to re-read instructions to understand what I needed to do",
+"It was always clear to me what I was supposed to do.",
+"Overall, the system gave me good instructions.",
+ "The system gave me useful feedback about my progress.",
+ "The system was really verbose and explained things that were already clear to me.",
+ "The system's  instructions came too early.",
+ "The system's  instructions came too late."
+)
+```
+
+# Evaluation of *all* games (i.e. building might not be finished)
+
+note that timings are probably highly correlated with successfulness here!
+```{r}
+data
+```
+
+
+
+```{r, results='asis'}
+
+feats <- list("timeToSuccess", "numMistakes", "Question0", "Question1", "Question2", "Question3", "Question4",  "Question5", "Question6")
+
+architects <- list("BLOCK", "MEDIUM", "HIGHLEVEL")
+
+bridgetableall<-data.frame(matrix(nrow=length(feats), ncol=3))
+colnames(bridgetableall) <- architects
+row.names(bridgetableall) <- feats
+housetableall<-data.frame(matrix(nrow=length(feats), ncol=3))
+colnames(housetableall) <- architects
+row.names(housetableall) <- feats
+
+
+for (scen in list("house", "bridge")) {
+  cat('\n\n##' , scen , '\n\n')
+  for (q in list("wasSuccessful", "numMistakes", "Question0", "Question1", "Question2", "Question3", "Question4",  "Question5", "Question6")) {
+    cat('\n\n###', q, '\n')
+    for (arch in list("BLOCK", "MEDIUM", "HIGHLEVEL")) {
+      cat('\n####', arch, '\n\n')
+      nam <- paste("succ",scen,arch, sep="")
+      assign(nam, data %>% filter(scenario == scen) %>% filter(architect == paste("SimpleArchitect-",arch, sep="")), envir = .GlobalEnv)
+
+      dset <- get(nam)[,c(q)]
+      # hist(dset)
+      cat('\n\n')
+      mean_results <- boot(dset, boot_mean, R = 200);
+      print(boot.ci(mean_results, type="bca"))
+      cat('\n\n')
+      print(kable(tidy(summary(dset)), align="llllll" ))
+      
+      if (scen == "house") {
+        housetableall[q, arch] <- mean(dset)[1]
+      } else {
+        bridgetableall[q, arch] <- mean(dset)[1]
+      }
+      
+    }
+  }
+}
+```
+
+
+
+ - Question0: I had to re-read instructions to understand what I needed to do
+ - Question1: It was always clear to me what I was supposed to do.
+ - Question2: Overall, the system gave me good instructions.
+ - Question3: The system gave me useful feedback about my progress.
+ - Question4: The system was really verbose and explained things that were already clear to me.
+ - Question5: The system's  instructions came too early. 
+ - Question6: The system's  instructions came too late. 
+
+
+
+
+# Evaluation of successful games (i.e. building was finished)
+
+```{r, results='asis'}
+
+# "HLO0", "HLO1", "HLO2",
+
+feats <- list("timeToSuccess", "numMistakes", "Question0", "Question1", "Question2", "Question3", "Question4",  "Question5", "Question6")
+
+architects <- list("BLOCK", "MEDIUM", "HIGHLEVEL")
+
+bridgetable<-data.frame(matrix(nrow=length(feats), ncol=3))
+colnames(bridgetable) <- architects
+row.names(bridgetable) <- feats
+housetable<-data.frame(matrix(nrow=length(feats), ncol=3))
+colnames(housetable) <- architects
+row.names(housetable) <- feats
+
+housetable["timeToSuccess", "BLOCK"] <- 1
+
+succGames <- data %>% filter(wasSuccessful == 1);
+for (scen in list("house", "bridge")) {
+  cat('\n\n##' , scen , '\n\n')
+  for (q in feats) {
+    cat('\n\n###', q, '\n')
+    for (arch in architects) {
+      cat('\n####', arch, '\n\n')
+      nam <- paste("succ",scen,arch, sep="")
+      assign(nam, succGames %>% filter(scenario == scen) %>% filter(architect == paste("SimpleArchitect-",arch, sep="")), envir = .GlobalEnv)
+
+      dset <- get(nam)[,c(q)]
+      # hist(dset)
+      cat('\n\n')
+      mean_results <- boot(dset, boot_mean, R = 200);
+      print(boot.ci(mean_results, type="bca"))
+      cat('\n\n')
+      print(kable(tidy(summary(dset)), align="llllll" ))
+      if (scen == "house") {
+        housetable[q, arch] <- mean(dset)[1]
+      } else {
+        bridgetable[q, arch] <- mean(dset)[1]
+      }
+    }
+  }
+}
+
+```
+
+ - Question0: I had to re-read instructions to understand what I needed to do
+ - Question1: It was always clear to me what I was supposed to do.
+ - Question2: Overall, the system gave me good instructions.
+ - Question3: The system gave me useful feedback about my progress.
+ - Question4: The system was really verbose and explained things that were already clear to me.
+ - Question5: The system's  instructions came too early. 
+ - Question6: The system's  instructions came too late. 
+
+# compact tables
+
+## all games
+
+### means for bridge (all)
+
+```{r}
+kable(bridgetableall, digits=2)
+```
+
+
+### means for house (all)
+
+```{r}
+kable(housetableall, digits=2)
+```
+
+
+## successful games
+
+### means for bridge (successful only)
+
+```{r}
+kable(bridgetable, digits=2)
+```
+
+
+### means for house (successful only)
+
+```{r}
+kable(housetable, digits=2)
+```
