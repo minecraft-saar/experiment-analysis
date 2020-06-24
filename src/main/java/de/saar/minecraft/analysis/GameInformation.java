@@ -81,6 +81,12 @@ public class GameInformation {
           .append("numBlocksDestroyed")
           .append(separator)
           .append("numMistakes");
+
+        for (int i = 0; i < 8; i++) {
+            sb.append(separator);
+            sb.append("HLO").append(i);
+        }
+
         for (int i = 0; i < getNumericQuestions().size(); i++) {
             sb.append(separator).append("Question").append(i);
         }
@@ -101,7 +107,7 @@ public class GameInformation {
         try { // only a valid time if actually successful
             sb.append(getTimeToSuccess());
         } catch (AssertionError e) {
-            sb.append("NaN");
+            sb.append("NA");
         }
         sb.append(separator)
                  .append(getNumBlocksPlaced())
@@ -109,6 +115,16 @@ public class GameInformation {
                  .append(getNumBlocksDestroyed())
                  .append(separator)
                  .append(getNumMistakes());
+
+        var hloTimings = getDurationPerHLO();
+        for (int i = 0; i < 8; i++) {
+            sb.append(separator);
+            if (i < hloTimings.size()) {
+                sb.append(hloTimings.get(i).getSecond());
+            } else {
+                sb.append("NA");
+            }
+        }
 
         getNumericQuestions().stream().sorted(Comparator.comparing(Pair::getFirst)).forEach(
                 (x) -> {
@@ -157,7 +173,6 @@ public class GameInformation {
             .where(GAME_LOGS.GAMEID.eq(gameId))
             .and(GAME_LOGS.ID.lessOrEqual(successMessageID))
             .and(GAME_LOGS.MESSAGE_TYPE.eq("BlockPlacedMessage"))
-            .and(GAME_LOGS.TIMESTAMP.lessOrEqual(getSuccessTime()))
             .fetchOne(0, int.class);
     }
 
@@ -171,7 +186,6 @@ public class GameInformation {
             .where(GAME_LOGS.GAMEID.eq(gameId))
             .and(GAME_LOGS.ID.lessOrEqual(successMessageID))
             .and(GAME_LOGS.MESSAGE_TYPE.eq("BlockDestroyedMessage"))
-            .and(GAME_LOGS.TIMESTAMP.lessOrEqual(getSuccessTime()))
             .fetchOne(0, int.class);
     }
 
