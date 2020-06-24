@@ -5,6 +5,10 @@ import static de.saar.minecraft.broker.db.Tables.GAME_LOGS;
 import static java.time.temporal.ChronoUnit.MILLIS;
 import static java.time.temporal.ChronoUnit.SECONDS;
 
+import com.google.gson.Gson;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+import de.saar.minecraft.broker.db.GameLogsDirection;
 import de.saar.minecraft.broker.db.Tables;
 
 import java.io.File;
@@ -22,8 +26,10 @@ import org.apache.commons.math3.util.Pair;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jooq.DSLContext;
+import org.jooq.JSON;
 import org.jooq.Record1;
 import org.jooq.Result;
+import org.jooq.tools.json.JSONObject;
 
 
 public class GameInformation {
@@ -224,7 +230,36 @@ public class GameInformation {
      * (This is low prio for now, the other two are more important)
      */
     public List<Pair<String, Integer>> getDurationPerInstruction() {
-        return null;
+        List<Pair<String, Integer>> durations = new ArrayList<>();
+        Result<GameLogsRecord> result = jooq.selectFrom(GAME_LOGS)
+                .where(GAME_LOGS.GAMEID.equal(gameId))
+                .orderBy(GAME_LOGS.ID.asc())
+                .fetch();
+        String oldInstruction = null;
+        LocalDateTime oldTimestamp = null;
+        for (GameLogsRecord record: result) {
+            if (record.getDirection().equals(GameLogsDirection.PassToClient)
+                    && record.getMessageType().equals("TextMessage")) {
+                JsonObject jsonObject = JsonParser.parseString(record.getMessage()).getAsJsonObject();
+                if (! jsonObject.has("text")) {
+                    continue;
+                }
+                String newInstruction = jsonObject.get("text").getAsString();
+                if (newInstruction.contains("Great! now")) {
+                    if (oldInstruction == null) {
+                        oldInstruction = newInstruction;
+                        oldTimestamp = record.getTimestamp();
+                        continue;
+                    }
+                    int duration = (int)oldTimestamp.until(record.getTimestamp(), MILLIS);
+                    durations.add(new Pair<>(oldInstruction, duration));
+                    oldInstruction = newInstruction;
+                    oldTimestamp = record.getTimestamp();
+                }
+            }
+        }
+
+        return durations;
     }
 
     /**
@@ -237,7 +272,6 @@ public class GameInformation {
         assert wasSuccessful();
         List<Pair<String, Integer>> durations;
         List<GameLogsRecord> correctBlocks = getCorrectBlocks();
-//        logger.info(correctBlocks.size());
         if (getScenario().equals("house")) {
             // wall: 1. 6 blocks, 2. 5 blocks, 3. 5 blocks, 4. 4 blocks
             // row: 1. - 4. 4 blocks
@@ -346,9 +380,17 @@ public class GameInformation {
             durations.append("\n - ").append(current).append("ms");
         }
 
-        List<Pair<String, Integer>> HLODurations  = getDurationPerHLO();
+        List<Pair<String, Integer>> HLODurations = getDurationPerHLO();
         durations.append("\n\n# Durations per High-level object");
         for (var pair: HLODurations) {
+            durations.append("\n - ").append(pair.getFirst());
+            durations.append(" : ").append(pair.getSecond());
+            durations.append("ms");
+        }
+
+        List<Pair<String, Integer>> instructionDurations = getDurationPerInstruction();
+        durations.append("\n\n# Durations per Instruction");
+        for (var pair: instructionDurations) {
             durations.append("\n - ").append(pair.getFirst());
             durations.append(" : ").append(pair.getSecond());
             durations.append("ms");
