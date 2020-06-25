@@ -6,19 +6,26 @@ import static java.time.temporal.ChronoUnit.MILLIS;
 import static java.time.temporal.ChronoUnit.SECONDS;
 
 import com.google.gson.Gson;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import de.saar.coli.minecraft.relationextractor.Block;
 import de.saar.minecraft.broker.db.GameLogsDirection;
 import de.saar.minecraft.broker.db.Tables;
 
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.sql.Timestamp;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
+import de.saar.coli.minecraft.relationextractor.MinecraftObject;
 import de.saar.minecraft.broker.db.tables.records.GameLogsRecord;
 import org.apache.commons.lang3.NotImplementedException;
 import org.apache.commons.lang3.math.NumberUtils;
@@ -260,6 +267,78 @@ public class GameInformation {
         return durations;
     }
 
+    public List<Pair<String, Integer>> getDurationPerBlockInstruction2() {
+        if (getArchitect() == null || !getArchitect().equals("SimpleArchitect-BLOCK")) {
+            return List.of();
+        }
+        List<Pair<String, Integer>> durations = new ArrayList<>();
+        Result<GameLogsRecord> result = jooq.selectFrom(GAME_LOGS)
+                .where(GAME_LOGS.GAMEID.equal(gameId))
+                .orderBy(GAME_LOGS.ID.asc())
+                .fetch();
+        String oldInstruction = null;
+        LocalDateTime oldTimestamp = null;
+        Block currentObjectLeft = null;
+
+        for(GameLogsRecord record: result) {
+            if (record.getMessageType().equals("BlocksCurrentObjectLeft")) {
+                if (currentObjectLeft != null) {
+                    logger.error("Object changed too early");
+                }
+                if (record.getMessage().isEmpty()) {
+                    continue;
+                }
+
+                JsonObject jsonObject = JsonParser.parseString(record.getMessage()).getAsJsonObject();
+                int x = jsonObject.get("xpos").getAsInt();
+                int y = jsonObject.get("ypos").getAsInt();
+                int z = jsonObject.get("zpos").getAsInt();
+                String type = jsonObject.get("type").getAsString();
+                currentObjectLeft = new Block(x, y, z);
+                oldTimestamp = record.getTimestamp();
+            } else if (record.getMessageType().equals("TextMessage")
+                    && record.getDirection().equals(GameLogsDirection.PassToClient)) {
+                JsonObject jsonObject = JsonParser.parseString(record.getMessage()).getAsJsonObject();
+                if (! jsonObject.has("text")) {
+                    continue;
+                }
+                String newInstruction = jsonObject.get("text").getAsString();
+                if (newInstruction.contains("Great! now") || newInstruction.contains("Congratulations")) {
+                    if (oldInstruction == null) {
+                        oldInstruction = newInstruction;
+                        oldTimestamp = record.getTimestamp();
+                        continue;
+                    } else {
+                        logger.error("Instruction changed too early");
+                    }
+                }
+
+            } else if (record.getMessageType().equals("BlockPlacedMessage")) {
+                // Check instruction and object
+                JsonObject jsonObject = JsonParser.parseString(record.getMessage()).getAsJsonObject();
+                logger.info("jsonObject {}", jsonObject);
+                int x = jsonObject.get("x").getAsInt();
+                int y = jsonObject.get("y").getAsInt();
+                int z = jsonObject.get("z").getAsInt();
+                Block newBlock = new Block(x, y, z);
+                if (currentObjectLeft == null) {
+                    // no block should be placed
+                    continue;
+                }
+                if (currentObjectLeft.equals(newBlock)) {
+                    // correct block
+                    int duration = (int)oldTimestamp.until(record.getTimestamp(), MILLIS);
+                    durations.add(new Pair<>(oldInstruction, duration));
+                    oldInstruction = null;
+                    oldTimestamp = null;
+                    currentObjectLeft = null;
+                }
+            }
+
+        }
+        return durations;
+    }
+
     /**
      * Returns the time the user needed to build each HLO in the scenario, i.e. the walls
      * in the house scenario and the floor and railings in the bridge scenario.
@@ -270,8 +349,6 @@ public class GameInformation {
         assert wasSuccessful();
         List<Pair<String, Integer>> durations = new ArrayList<>();
         List<Pair<String, Integer>> instructions = getDurationPerInstruction();
-        logger.info("arch {}", getArchitect());
-        logger.info("scenario {}", getScenario());
 
         if (getArchitect() == null) {
             return List.of();
@@ -356,6 +433,116 @@ public class GameInformation {
         return durations;
     }
 
+    public List<Pair<String, Integer>> getDurationPerHLO2() {
+        assert wasSuccessful();
+        if (getArchitect() == null || !getArchitect().equals("SimpleArchitect-BLOCK")) {
+            return List.of();
+        }
+        Result<GameLogsRecord> result = jooq.selectFrom(GAME_LOGS)
+                .where(GAME_LOGS.GAMEID.equal(gameId))
+                .orderBy(GAME_LOGS.ID.asc())
+                .fetch();
+
+        if (getScenario().equals("bridge")) {
+            var floorBlocks = List.of(
+                    new Block(7, 66, 6),
+                    new Block(8, 66, 6),
+                    new Block(9, 66, 6),
+                    new Block(10, 66, 6),
+                    new Block(10, 66, 7),
+                    new Block(9, 66, 7),
+                    new Block(8, 66, 7),
+                    new Block(7, 66, 7),
+                    new Block(6, 66, 7),
+                    new Block(6, 66, 8),
+                    new Block(7, 66, 8),
+                    new Block(8, 66, 8),
+                    new Block(9, 66, 8)
+                    );
+            var firstRailingBlocks = List.of(
+                    new Block(10, 67, 6),
+                    new Block(6, 67, 6),
+                    new Block(6, 68, 6),
+                    new Block(7, 68, 6),
+                    new Block(8, 68, 6),
+                    new Block(9, 68, 6),
+                    new Block(10, 68, 6)
+            );
+            var secondRailingBlocks = List.of(
+                    new Block(6, 67, 8),
+                    new Block(10, 67, 8),
+                    new Block(10, 68, 8),
+                    new Block(9, 68, 8),
+                    new Block(8, 68, 8),
+                    new Block(7, 68, 8),
+                    new Block(6, 68, 8)
+            );
+            LocalDateTime firstInstructionTime = null;
+            LocalDateTime floorTime = null;
+            LocalDateTime firstRailingTime = null;
+            LocalDateTime secondRailingTime = null;
+            for (GameLogsRecord record: result) {
+                if (record.getMessageType().equals("CurrentWorld")) {
+                    JsonArray jsonArray = JsonParser.parseString(record.getMessage()).getAsJsonArray();
+                    Gson gson = new Gson();
+                    MinecraftObject[] blockArray = gson.fromJson(jsonArray, Block[].class);
+                    Set<MinecraftObject> world = Set.of(blockArray);
+                    if (floorTime == null) {
+                        boolean allPresent = true;
+                        for (Block block: floorBlocks) {
+                            if (!world.contains(block)) {
+                                allPresent = false;
+                                break;
+                            }
+                        }
+                        if (allPresent) {
+                            floorTime = record.getTimestamp();
+                        }
+                    } else if (firstRailingTime == null) {
+                        boolean allPresent = true;
+                        for (Block block: firstRailingBlocks) {
+                            if (!world.contains(block)) {
+                                allPresent = false;
+                                break;
+                            }
+                        }
+                        if (allPresent) {
+                            firstRailingTime = record.getTimestamp();
+                        }
+                    } else if (secondRailingTime == null) {
+                        boolean allPresent = true;
+                        for (Block block: secondRailingBlocks) {
+                            if (!world.contains(block)) {
+                                allPresent = false;
+                                break;
+                            }
+                        }
+                        if (allPresent) {
+                            secondRailingTime = record.getTimestamp();
+                        }
+                    }
+
+
+                } else if (record.getMessageType().equals("TextMessage") ) {
+                    if (record.getMessage().contains("Welcome! I will try to instruct you to build a ")) {
+                        firstInstructionTime = record.getTimestamp();
+                    } else if (record.getMessage().contains("Congratulations, you are done building a bridge")) {
+                        secondRailingTime = record.getTimestamp();
+                    }
+                }
+            }
+
+            List<Pair<String, Integer>> durations = List.of(
+                    new Pair<>("floor", (int)firstInstructionTime.until(floorTime, MILLIS)),
+                    new Pair<>("railing", (int)floorTime.until(firstRailingTime, MILLIS)),
+                    new Pair<>("railing", (int)firstRailingTime.until(secondRailingTime, MILLIS))
+            );
+            return durations;
+        }
+
+        return List.of();
+    }
+
     /**
      * TODO: does not work if the player placed two or more blocks before the architect reacts with a correction.
      * @return game logs for all correct blocks
@@ -425,8 +612,24 @@ public class GameInformation {
             durations.append("ms");
         }
 
+        HLODurations = getDurationPerHLO2();
+        durations.append("\n\n# Durations per High-level object  - new Implementation");
+        for (var pair: HLODurations) {
+            durations.append("\n - ").append(pair.getFirst());
+            durations.append(" : ").append(pair.getSecond());
+            durations.append("ms");
+        }
+
         List<Pair<String, Integer>> instructionDurations = getDurationPerInstruction();
         durations.append("\n\n# Durations per Instruction");
+        for (var pair: instructionDurations) {
+            durations.append("\n - ").append(pair.getFirst());
+            durations.append(" : ").append(pair.getSecond());
+            durations.append("ms");
+        }
+
+        instructionDurations = getDurationPerBlockInstruction2();
+        durations.append("\n\n# Durations per Block Instruction");
         for (var pair: instructionDurations) {
             durations.append("\n - ").append(pair.getFirst());
             durations.append(" : ").append(pair.getSecond());
