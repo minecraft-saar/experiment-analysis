@@ -26,10 +26,8 @@ import org.apache.commons.math3.util.Pair;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jooq.DSLContext;
-import org.jooq.JSON;
 import org.jooq.Record1;
 import org.jooq.Result;
-import org.jooq.tools.json.JSONObject;
 
 
 public class GameInformation {
@@ -245,7 +243,7 @@ public class GameInformation {
                     continue;
                 }
                 String newInstruction = jsonObject.get("text").getAsString();
-                if (newInstruction.contains("Great! now")) {
+                if (newInstruction.contains("Great! now") || newInstruction.contains("Congratulations")) {
                     if (oldInstruction == null) {
                         oldInstruction = newInstruction;
                         oldTimestamp = record.getTimestamp();
@@ -270,51 +268,90 @@ public class GameInformation {
      */
     public List<Pair<String, Integer>> getDurationPerHLO() {
         assert wasSuccessful();
-        List<Pair<String, Integer>> durations;
-        List<GameLogsRecord> correctBlocks = getCorrectBlocks();
-        if (getScenario().equals("house")) {
-            // wall: 1. 6 blocks, 2. 5 blocks, 3. 5 blocks, 4. 4 blocks
-            // row: 1. - 4. 4 blocks
-            if (correctBlocks.size() < 36) {
-                logger.error("Not enough blocks in game {}", gameId);
-                return List.of();
-            }
-            long firstWall = getStartTime().until(correctBlocks.get(5).getTimestamp(), MILLIS);
-            long secondWall = correctBlocks.get(5).getTimestamp().until(correctBlocks.get(10).getTimestamp(), MILLIS);
-            long thirdWall = correctBlocks.get(10).getTimestamp().until(correctBlocks.get(15).getTimestamp(), MILLIS);
-            long fourthWall = correctBlocks.get(15).getTimestamp().until(correctBlocks.get(19).getTimestamp(), MILLIS);
+        List<Pair<String, Integer>> durations = new ArrayList<>();
+        List<Pair<String, Integer>> instructions = getDurationPerInstruction();
+        logger.info("arch {}", getArchitect());
+        logger.info("scenario {}", getScenario());
 
-            long firstRow = correctBlocks.get(19).getTimestamp().until(correctBlocks.get(23).getTimestamp(), MILLIS);
-            long secondRow = correctBlocks.get(23).getTimestamp().until(correctBlocks.get(27).getTimestamp(), MILLIS);
-            long thirdRow = correctBlocks.get(27).getTimestamp().until(correctBlocks.get(31).getTimestamp(), MILLIS);
-            long fourthRow = correctBlocks.get(31).getTimestamp().until(correctBlocks.get(35).getTimestamp(), MILLIS);
-            durations = List.of(
-                    Pair.create("wall", (int)firstWall),
-                    Pair.create("wall", (int)secondWall),
-                    Pair.create("wall", (int)thirdWall),
-                    Pair.create("wall", (int)fourthWall),
-                    Pair.create("row", (int)firstRow),
-                    Pair.create("row", (int)secondRow),
-                    Pair.create("row", (int)thirdRow),
-                    Pair.create("row", (int)fourthRow)
-            );
-        } else if (getScenario().equals("bridge")) {
-            // floor: 13 blocks
-            // railing: 1. + 2. 7 blocks
-            if (correctBlocks.size() < 27) {
-                logger.error("Not enough blocks in game {}", gameId);
-                return List.of();
+        if (getArchitect() == null) {
+            return List.of();
+        }
+        if (getArchitect().endsWith("HIGHLEVEL")) {
+            for (Pair<String, Integer> inst: instructions) {
+                for (String hlo: List.of("wall", "row", "floor", "railing")) {
+                    if (inst.getFirst().contains(hlo)) {
+                        durations.add(new Pair<>(hlo, inst.getSecond()));
+                        break;
+                    }
+                }
             }
-            long floor = getStartTime().until(correctBlocks.get(12).getTimestamp(), MILLIS);
-            long firstRailing = correctBlocks.get(12).getTimestamp().until(correctBlocks.get(19).getTimestamp(), MILLIS);
-            long secondRailing = correctBlocks.get(19).getTimestamp().until(correctBlocks.get(26).getTimestamp(), MILLIS);
-            durations = List.of(
-                    Pair.create("floor", (int)floor),
-                    Pair.create("railing", (int)firstRailing),
-                    Pair.create("railing", (int)secondRailing)
-            );
+        } else if (getArchitect().endsWith("MEDIUM")) {
+            if (getScenario().equals("house")) {
+                //wall: 1. 6 blocks, 2. - 4: wall
+                // row: 1. 4 blocks, 2. - 4.: row
+                if (instructions.size() < 16) {
+                    logger.error("Not enough blocks for game " + gameId + ": " + instructions.size());
+                    return List.of();
+                }
+                durations.add(new Pair<>("wall", instructions.subList(0, 6).stream().mapToInt(Pair::getSecond).reduce(0, Integer::sum)));
+                durations.add(new Pair<>("wall", instructions.get(6).getSecond()));
+                durations.add(new Pair<>("wall", instructions.get(7).getSecond()));
+                durations.add(new Pair<>("wall", instructions.get(8).getSecond()));
+
+                durations.add(new Pair<>("row", instructions.subList(9, 13).stream().mapToInt(Pair::getSecond).reduce(0, Integer::sum)));
+                durations.add(new Pair<>("row", instructions.get(13).getSecond()));
+                durations.add(new Pair<>("row", instructions.get(14).getSecond()));
+                durations.add(new Pair<>("row", instructions.get(15).getSecond()));
+
+            } else if (getScenario().equals("bridge")) {
+                // floor: 13 blocks
+                // railing: 1. + 2. 7 blocks
+                if (instructions.size() < 21) {
+                    logger.error("Not enough blocks in game {}: {}", gameId, instructions.size());
+                    return List.of();
+                }
+                durations.add(new Pair<>("floor", instructions.subList(0, 13).stream().mapToInt(Pair::getSecond).reduce(0, Integer::sum)));
+                durations.add(new Pair<>("railing", instructions.subList(13, 20).stream().mapToInt(Pair::getSecond).reduce(0, Integer::sum)));
+                durations.add(new Pair<>("railing", instructions.get(20).getSecond()));
+            } else {
+                throw new NotImplementedException("Unknown scenario: " + getScenario());
+            }
+
+        } else if (getArchitect().endsWith("BLOCK")) {
+            if (getScenario().equals("house")) {
+                //wall: 1. 6 blocks, 2. 5 blocks, 3. 5 blocks, 4. 4 blocks
+                // row: 1. - 4. 4 blocks
+                if (instructions.size() < 36) {
+                    logger.error("Not enough blocks for game " + gameId + ": " + instructions.size());
+                    return List.of();
+                }
+                durations.add(new Pair<>("wall", instructions.subList(0, 6).stream().mapToInt(Pair::getSecond).reduce(0, Integer::sum)));
+                durations.add(new Pair<>("wall", instructions.subList(6, 11).stream().mapToInt(Pair::getSecond).reduce(0, Integer::sum)));
+                durations.add(new Pair<>("wall", instructions.subList(11, 16).stream().mapToInt(Pair::getSecond).reduce(0, Integer::sum)));
+                durations.add(new Pair<>("wall", instructions.subList(16, 20).stream().mapToInt(Pair::getSecond).reduce(0, Integer::sum)));
+
+                durations.add(new Pair<>("row", instructions.subList(20, 24).stream().mapToInt(Pair::getSecond).reduce(0, Integer::sum)));
+                durations.add(new Pair<>("row", instructions.subList(24, 28).stream().mapToInt(Pair::getSecond).reduce(0, Integer::sum)));
+                durations.add(new Pair<>("row", instructions.subList(28, 32).stream().mapToInt(Pair::getSecond).reduce(0, Integer::sum)));
+                durations.add(new Pair<>("row", instructions.subList(32, 36).stream().mapToInt(Pair::getSecond).reduce(0, Integer::sum)));
+
+            } else if (getScenario().equals("bridge")) {
+                // floor: 13 blocks
+                // railing: 1. + 2. 7 blocks
+                if (instructions.size() < 27) {
+                    logger.error("Not enough blocks in game {}: {}", gameId, instructions.size());
+                    return List.of();
+                }
+                durations.add(new Pair<>("floor", instructions.subList(0, 13).stream().mapToInt(Pair::getSecond).reduce(0, Integer::sum)));
+                durations.add(new Pair<>("railing", instructions.subList(13, 20).stream().mapToInt(Pair::getSecond).reduce(0, Integer::sum)));
+                durations.add(new Pair<>("railing", instructions.subList(20, 27).stream().mapToInt(Pair::getSecond).reduce(0, Integer::sum)));
+            } else {
+                throw new NotImplementedException("Unknown scenario: " + getScenario());
+            }
+        } else if (getArchitect().equals("DummyArchitect")) {
+            return List.of();
         } else {
-            throw new NotImplementedException("Unknown scenario " + getScenario());
+            throw new NotImplementedException("Unknown architect: " + getArchitect());
         }
         return durations;
     }

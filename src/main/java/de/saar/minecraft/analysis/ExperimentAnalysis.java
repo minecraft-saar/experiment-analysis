@@ -182,4 +182,16 @@ public class ExperimentAnalysis {
         }
     }
 
+    public void makeGameAnalysis(int gameId) throws IOException {
+        Path basePath = Paths.get(config.getDirName(), "per_game");
+        if (!basePath.toFile().isDirectory() && !basePath.toFile().mkdir()) {
+            throw new IOException("Could not create directory " + basePath.toString());
+        }
+        GameInformation info = gameInformations.stream().filter((x) -> x.gameId == gameId).findFirst().orElse(null);
+        String filename = String.format("game-%d.md", info.gameId);
+        File file = new File(basePath.toString(), filename);
+        info.writeAnalysis(file);
+
+    }
+
 }
