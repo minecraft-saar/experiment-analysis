@@ -4,24 +4,16 @@ import de.saar.minecraft.broker.db.Tables;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jooq.DSLContext;
-import org.jooq.Record1;
-import org.jooq.Result;
 import org.jooq.SQLDialect;
 import org.jooq.impl.DSL;
 
 import java.io.File;
-import java.io.FileWriter;
-import java.io.IOError;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.sql.Connection;
-import java.sql.Driver;
 import java.sql.DriverManager;
 import java.sql.SQLException;
-import java.util.ArrayList;
-import java.util.Enumeration;
-import java.util.Iterator;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -96,7 +88,7 @@ public class ExperimentAnalysis {
 
     public void makePartialAnalysis(String scenario, String architect, boolean onlySuccessful) throws IOException {
         List<GameInformation> gamedata = gameInformations;
-        logger.info(gamedata.size());
+
         if (architect != null) {
             gamedata = gamedata.stream()
                     .filter((gi) -> {
@@ -107,19 +99,19 @@ public class ExperimentAnalysis {
                     })
                     .collect(Collectors.toList());
         }
-        logger.info(gamedata.size());
+
         if (scenario != null) {
             gamedata = gamedata.stream()
                     .filter((gi) -> gi.getScenario().equals(scenario))
                     .collect(Collectors.toList());
         }
-        logger.info(gamedata.size());
+
         if (onlySuccessful) {
             gamedata = gamedata.stream()
                     .filter(GameInformation::wasSuccessful)
                     .collect(Collectors.toList());
         }
-        logger.info(gamedata.size());
+
         makeAnalysis(scenario + "-" + architect + "-" + onlySuccessful + ".md", gamedata);
     }
 

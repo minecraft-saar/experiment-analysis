@@ -1,13 +1,8 @@
 package de.saar.minecraft.analysis;
 
-import de.saar.minecraft.broker.db.Tables;
-import de.saar.minecraft.broker.db.tables.records.GamesRecord;
-import de.saar.minecraft.broker.db.tables.records.QuestionnairesRecord;
-
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
-import java.text.DecimalFormat;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -21,11 +16,6 @@ import org.apache.logging.log4j.Logger;
 
 public class AggregateInformation {
     List<GameInformation> games;
-
-    /**
-     * Should probably be deprecated
-     */
-    protected AggregateInformation() {}
 
     public AggregateInformation(List<GameInformation> games) {
         this.games = games;
@@ -155,7 +145,7 @@ public class AggregateInformation {
             if (!info.wasSuccessful()) {
                 continue;
             }
-            var current = info.getDurationPerHLO();
+            var current = info.getDurationPerHLO2();
             if (addedDurations.isEmpty()) {
                 addedDurations = current.stream()
                         .map((x -> new Pair<String, List<Integer>>(x.getFirst(), new ArrayList<>())))
@@ -197,12 +187,11 @@ public class AggregateInformation {
                 "\n\n";
         writer.write(overview);
 
-        StringBuilder gameList = new StringBuilder("\nGames in this category\n");
+        StringBuilder gameList = new StringBuilder("\n# Games in this category\n");
         for (GameInformation gi: games) {
             gameList.append(gi.gameId).append(", ");
         }
         writer.write(gameList.toString());
-
 
         StringBuilder likert = new StringBuilder("\n\n# Likert Questions\n");
 

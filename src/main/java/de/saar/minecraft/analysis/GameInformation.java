@@ -10,6 +10,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import de.saar.coli.minecraft.relationextractor.BigBlock;
 import de.saar.coli.minecraft.relationextractor.Block;
 import de.saar.minecraft.broker.db.GameLogsDirection;
 import de.saar.minecraft.broker.db.Tables;
@@ -17,7 +18,6 @@ import de.saar.minecraft.broker.db.Tables;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
-import java.sql.Timestamp;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -25,10 +25,10 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-import de.saar.coli.minecraft.relationextractor.MinecraftObject;
 import de.saar.minecraft.broker.db.tables.records.GameLogsRecord;
 import org.apache.commons.lang3.NotImplementedException;
 import org.apache.commons.lang3.math.NumberUtils;
+import org.apache.commons.lang3.tuple.MutablePair;
 import org.apache.commons.math3.util.Pair;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -316,10 +316,14 @@ public class GameInformation {
             } else if (record.getMessageType().equals("BlockPlacedMessage")) {
                 // Check instruction and object
                 JsonObject jsonObject = JsonParser.parseString(record.getMessage()).getAsJsonObject();
-                logger.info("jsonObject {}", jsonObject);
+                // TODO: deal with incomplete BlockPlacedMessages
+                if (!jsonObject.has("x") || !jsonObject.has("y") || !jsonObject.has("z")) {
+                    continue;
+                }
                 int x = jsonObject.get("x").getAsInt();
                 int y = jsonObject.get("y").getAsInt();
                 int z = jsonObject.get("z").getAsInt();
+
                 Block newBlock = new Block(x, y, z);
                 if (currentObjectLeft == null) {
                     // no block should be placed
@@ -435,7 +439,7 @@ public class GameInformation {
 
     public List<Pair<String, Integer>> getDurationPerHLO2() {
         assert wasSuccessful();
-        if (getArchitect() == null || !getArchitect().equals("SimpleArchitect-BLOCK")) {
+        if (getArchitect() == null) {
             return List.of();
         }
         Result<GameLogsRecord> result = jooq.selectFrom(GAME_LOGS)
@@ -443,6 +447,8 @@ public class GameInformation {
                 .orderBy(GAME_LOGS.ID.asc())
                 .fetch();
 
+        LocalDateTime firstInstructionTime = null;
+        List<MutablePair<LocalDateTime, List<Block>>> hloPlans = List.of();
         if (getScenario().equals("bridge")) {
             var floorBlocks = List.of(
                     new Block(7, 66, 6),
@@ -458,7 +464,7 @@ public class GameInformation {
                     new Block(7, 66, 8),
                     new Block(8, 66, 8),
                     new Block(9, 66, 8)
-                    );
+            );
             var firstRailingBlocks = List.of(
                     new Block(10, 67, 6),
                     new Block(6, 67, 6),
@@ -477,70 +483,143 @@ public class GameInformation {
                     new Block(7, 68, 8),
                     new Block(6, 68, 8)
             );
-            LocalDateTime firstInstructionTime = null;
-            LocalDateTime floorTime = null;
-            LocalDateTime firstRailingTime = null;
-            LocalDateTime secondRailingTime = null;
-            for (GameLogsRecord record: result) {
-                if (record.getMessageType().equals("CurrentWorld")) {
-                    JsonArray jsonArray = JsonParser.parseString(record.getMessage()).getAsJsonArray();
-                    Gson gson = new Gson();
-                    MinecraftObject[] blockArray = gson.fromJson(jsonArray, Block[].class);
-                    Set<MinecraftObject> world = Set.of(blockArray);
-                    if (floorTime == null) {
+
+            hloPlans = List.of(
+                    new MutablePair<>(null, floorBlocks),
+                    new MutablePair<>(null, firstRailingBlocks),
+                    new MutablePair<>(null, secondRailingBlocks)
+            );
+        } else if (getScenario().equals("house")) {
+            //TODO read block plan from
+            // '/shared-resources/src/main/resources/de/saar/minecraft/domains/house-block.plan'
+            return List.of();
+//            hloPlans = List.of(
+//                    new MutablePair<>(null, List.of(
+//                            new Block(6, 68, 6),
+//                            new Block(6, 68, 7),
+//                            new Block(6, 68, 8),
+//                            new Block(6, 68, 9))
+//            ));
+        } else {
+            throw new NotImplementedException("Unknown scenario: " + getScenario());
+        }
+        for (GameLogsRecord record: result) {
+            if (record.getMessageType().equals("CurrentWorld")) {
+                JsonArray jsonArray = JsonParser.parseString(record.getMessage()).getAsJsonArray();
+                Gson gson = new Gson();
+                Set<Block> world = null;
+                switch (getArchitect()) {
+                    case "SimpleArchitect-BLOCK": {
+                        Block[] blockArray = gson.fromJson(jsonArray, Block[].class);
+                        world = Set.of(blockArray);
+                        break;
+                    }
+                    case "SimpleArchitect-MEDIUM":
+                    case "SimpleArchitect-HIGHLEVEL": {
+                        world = new HashSet<>();
+                        for (JsonElement el: jsonArray) {
+                            if (el.isJsonObject()) {
+                                JsonObject curObject = el.getAsJsonObject();
+                                String type = curObject.get("type").getAsString();
+                                switch (type) {
+                                    case "Block": {
+                                        world.add(gson.fromJson(curObject, Block.class));
+                                        break;
+                                    }
+                                    case "Floor":
+                                    case "Railing":
+                                    case "Wall":
+                                    case "Row": {
+                                        addBlocksFromChildren(world, curObject);
+                                        break;
+                                    }
+                                    case "UniqueBlock":
+                                        // is not placed by the player
+                                        continue;
+                                    default:
+                                        throw new NotImplementedException("Unknown Minecraft object type: " + type);
+                                }
+                            }
+                        }
+                        break;
+                    }
+                    case "DummyArchitect": {
+                        // no HLO instructions
+                        return List.of();
+                    }
+                    default:
+                        throw new NotImplementedException("Unknown Architect: " + getArchitect());
+                }
+                for (MutablePair<LocalDateTime, List<Block>> hlo: hloPlans) {
+                    if (hlo.getLeft() == null) {
                         boolean allPresent = true;
-                        for (Block block: floorBlocks) {
+                        for (Block block: hlo.getRight()) {
                             if (!world.contains(block)) {
                                 allPresent = false;
                                 break;
                             }
                         }
                         if (allPresent) {
-                            floorTime = record.getTimestamp();
-                        }
-                    } else if (firstRailingTime == null) {
-                        boolean allPresent = true;
-                        for (Block block: firstRailingBlocks) {
-                            if (!world.contains(block)) {
-                                allPresent = false;
-                                break;
-                            }
-                        }
-                        if (allPresent) {
-                            firstRailingTime = record.getTimestamp();
-                        }
-                    } else if (secondRailingTime == null) {
-                        boolean allPresent = true;
-                        for (Block block: secondRailingBlocks) {
-                            if (!world.contains(block)) {
-                                allPresent = false;
-                                break;
-                            }
-                        }
-                        if (allPresent) {
-                            secondRailingTime = record.getTimestamp();
+                            hlo.setLeft(record.getTimestamp());
                         }
                     }
+                }
 
-
-                } else if (record.getMessageType().equals("TextMessage") ) {
-                    if (record.getMessage().contains("Welcome! I will try to instruct you to build a ")) {
-                        firstInstructionTime = record.getTimestamp();
-                    } else if (record.getMessage().contains("Congratulations, you are done building a bridge")) {
-                        secondRailingTime = record.getTimestamp();
+            } else if (record.getMessageType().equals("TextMessage") ) {
+                if (record.getMessage().contains("Welcome! I will try to instruct you to build a ")) {
+                    firstInstructionTime = record.getTimestamp();
+                } else if (record.getMessage().contains("Congratulations, you are done building a")) {
+                    if (hloPlans.get(hloPlans.size() - 1).getLeft() == null) {
+                        hloPlans.get(hloPlans.size() - 1).setLeft(record.getTimestamp());
                     }
                 }
             }
-
-            List<Pair<String, Integer>> durations = List.of(
-                    new Pair<>("floor", (int)firstInstructionTime.until(floorTime, MILLIS)),
-                    new Pair<>("railing", (int)floorTime.until(firstRailingTime, MILLIS)),
-                    new Pair<>("railing", (int)firstRailingTime.until(secondRailingTime, MILLIS))
-            );
-            return durations;
         }
 
+        if (getScenario().equals("bridge")) {
+            return List.of(
+                    new Pair<>("floor", (int) firstInstructionTime.until(hloPlans.get(0).getLeft(), MILLIS)),
+                    new Pair<>("railing", (int) hloPlans.get(0).getLeft().until(hloPlans.get(1).getLeft(), MILLIS)),
+                    new Pair<>("railing", (int) hloPlans.get(1).getLeft().until(hloPlans.get(2).getLeft(), MILLIS))
+            );
+        } else if (getScenario().equals("house")) {
+            return List.of();
+//            return List.of(
+//                    new Pair<>("wall", (int) firstInstructionTime.until(hloPlans.get(0).getLeft(), MILLIS)),
+//                    new Pair<>("wall", (int) hloPlans.get(0).getLeft().until(hloPlans.get(1).getLeft(), MILLIS)),
+//                    new Pair<>("wall", (int) hloPlans.get(1).getLeft().until(hloPlans.get(2).getLeft(), MILLIS)),
+//                    new Pair<>("wall", (int) hloPlans.get(2).getLeft().until(hloPlans.get(3).getLeft(), MILLIS)),
+//                    new Pair<>("row", (int) hloPlans.get(3).getLeft().until(hloPlans.get(4).getLeft(), MILLIS)),
+//                    new Pair<>("row", (int) hloPlans.get(4).getLeft().until(hloPlans.get(5).getLeft(), MILLIS)),
+//                    new Pair<>("row", (int) hloPlans.get(5).getLeft().until(hloPlans.get(6).getLeft(), MILLIS)),
+//                    new Pair<>("row", (int) hloPlans.get(6).getLeft().until(hloPlans.get(7).getLeft(), MILLIS))
+//                    );
+        }
         return List.of();
+    }
+
+    private void addBigBlocks(Set<Block> world, BigBlock bigBlock) {
+        for (int x = bigBlock.x1; x <= bigBlock.x2; x++) {
+            for (int y = bigBlock.y1; y <= bigBlock.y2; y++) {
+                for (int z = bigBlock.z1; z <= bigBlock.z2; z++) {
+                    world.add(new Block(x, y, z));
+                }
+            }
+        }
+    }
+
+    private void addBlocksFromChildren(Set<Block> world, JsonObject jsonObject) {
+        Gson gson = new Gson();
+        for (var childElement: jsonObject.get("children").getAsJsonArray()){
+            if (childElement.isJsonObject()) {
+                JsonObject child = (JsonObject)childElement;
+                if ( child.has("xPos")) {
+                    world.add(gson.fromJson(child, Block.class));
+                } else if (child.has("name")) {
+                    addBlocksFromChildren(world, child);
+                }
+            }
+        }
     }
 
     /**
@@ -588,7 +667,7 @@ public class GameInformation {
                 (wasSuccessful ? getTimeToSuccess() + " seconds" : "not applicable") +
                 "\n - Total time logged in: " +
                 getTotalTime() +
-                "seconds\n\n## Blocks\n" +
+                " seconds\n\n## Blocks\n" +
                 "\n - Number of blocks placed: " +
                 getNumBlocksPlaced() +
                 "\n - Number of blocks destroyed: " +
@@ -604,38 +683,42 @@ public class GameInformation {
             durations.append("\n - ").append(current).append("ms");
         }
 
-        List<Pair<String, Integer>> HLODurations = getDurationPerHLO();
-        durations.append("\n\n# Durations per High-level object");
-        for (var pair: HLODurations) {
-            durations.append("\n - ").append(pair.getFirst());
-            durations.append(" : ").append(pair.getSecond());
-            durations.append("ms");
-        }
+        if (wasSuccessful) {
 
-        HLODurations = getDurationPerHLO2();
-        durations.append("\n\n# Durations per High-level object  - new Implementation");
-        for (var pair: HLODurations) {
-            durations.append("\n - ").append(pair.getFirst());
-            durations.append(" : ").append(pair.getSecond());
-            durations.append("ms");
-        }
+            List<Pair<String, Integer>> HLODurations = getDurationPerHLO();
+            durations.append("\n\n# Durations per High-level object");
+            for (var pair : HLODurations) {
+                durations.append("\n - ").append(pair.getFirst());
+                durations.append(" : ").append(pair.getSecond());
+                durations.append("ms");
+            }
 
-        List<Pair<String, Integer>> instructionDurations = getDurationPerInstruction();
-        durations.append("\n\n# Durations per Instruction");
-        for (var pair: instructionDurations) {
-            durations.append("\n - ").append(pair.getFirst());
-            durations.append(" : ").append(pair.getSecond());
-            durations.append("ms");
-        }
+            HLODurations = getDurationPerHLO2();
+            durations.append("\n\n# Durations per High-level object  - new Implementation");
+            for (var pair : HLODurations) {
+                durations.append("\n - ").append(pair.getFirst());
+                durations.append(" : ").append(pair.getSecond());
+                durations.append("ms");
+            }
 
-        instructionDurations = getDurationPerBlockInstruction2();
-        durations.append("\n\n# Durations per Block Instruction");
-        for (var pair: instructionDurations) {
-            durations.append("\n - ").append(pair.getFirst());
-            durations.append(" : ").append(pair.getSecond());
-            durations.append("ms");
+            List<Pair<String, Integer>> instructionDurations = getDurationPerInstruction();
+            durations.append("\n\n# Durations per Instruction");
+            for (var pair : instructionDurations) {
+                durations.append("\n - ").append(pair.getFirst());
+                durations.append(" : ").append(pair.getSecond());
+                durations.append("ms");
+            }
+
+            instructionDurations = getDurationPerBlockInstruction2();
+            durations.append("\n\n# Durations per Block Instruction");
+            for (var pair : instructionDurations) {
+                durations.append("\n - ").append(pair.getFirst());
+                durations.append(" : ").append(pair.getSecond());
+                durations.append("ms");
+            }
+
+            writer.write(durations.toString());
         }
-        writer.write(durations.toString());
         writer.close();
 
     }
