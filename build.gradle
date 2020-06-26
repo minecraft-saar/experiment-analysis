@@ -43,4 +43,5 @@ dependencies {
     implementation group: 'de.saar.minecraft.infrastructure', name: 'networking', version: '1.1.13'
     implementation group: 'de.saar.minecraft.infrastructure', name: 'broker', version: '1.1.13'
     compile group: 'de.saar.minecraft', name: 'minecraft-nlg', version: '1.1.17'
+    runtimeOnly 'de.saar.minecraft:shared-resources:1.1.17'
 }

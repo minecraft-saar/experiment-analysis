@@ -155,7 +155,7 @@ public class AggregateInformation {
             if (!info.wasSuccessful()) {
                 continue;
             }
-            var current = info.getDurationPerHLO2();
+            var current = info.getDurationPerHLO();
             if (addedDurations.isEmpty()) {
                 addedDurations = current.stream()
                         .map((x -> new Pair<String, List<Integer>>(x.getFirst(), new ArrayList<>())))
