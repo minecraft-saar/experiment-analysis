@@ -23,6 +23,16 @@ public class AggregateInformation {
 
     private static final Logger logger = LogManager.getLogger(AggregateInformation.class);
 
+    public void saveCSV(File file) throws IOException {
+        var sep = ",";
+        FileWriter writer = new FileWriter(file);
+        writer.write(games.get(0).getCSVHeader(sep));
+        for (var g: games) {
+            writer.write(g.getCSVLine(sep));
+        }
+        writer.close();
+    }
+
     public int getNumGames() {
         return games.size();
     }
