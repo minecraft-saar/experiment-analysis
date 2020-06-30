@@ -1,11 +1,11 @@
 ---
 title: "R Notebook"
 output:
-  pdf_document:
-     keep_tex: true
-  html_notebook: default
   html_document:
     df_print: paged
+  html_notebook: default
+  pdf_document:
+     keep_tex: true
 ---
 
 ```{r}
@@ -17,7 +17,11 @@ library(ggplot2);
 data <- read.csv("analysis/data.csv", comment.char ="#");
 data[data=="true"] <- 1;
 data[data=="false"] <- 0;
-data <- transform(data, wasSuccessful = as.numeric(wasSuccessful))
+data <- transform(data, wasSuccessful = as.numeric(wasSuccessful)
+                  ,HLO0 = HLO0 / 1000
+                  ,HLO1 = HLO1 / 1000
+                  ,HLO2 = HLO2 / 1000
+                  )
 boot_mean <- function(original_vector, resample_vector) {
     mean(original_vector[resample_vector])
 }
@@ -38,13 +42,13 @@ questions<-list(
 # Evaluation of *all* games (i.e. building might not be finished)
 
 note that timings are probably highly correlated with successfulness here!
-```{r}
+```{r, eval=FALSE}
 data
 ```
 
 
 
-```{r, results='asis'}
+```{r, results='asis', eval=FALSE}
 
 feats <- list("timeToSuccess", "numMistakes", "Question0", "Question1", "Question2", "Question3", "Question4",  "Question5", "Question6")
 
@@ -67,10 +71,10 @@ for (scen in list("house", "bridge")) {
       nam <- paste("succ",scen,arch, sep="")
       assign(nam, data %>% filter(scenario == scen) %>% filter(architect == paste("SimpleArchitect-",arch, sep="")), envir = .GlobalEnv)
 
-      dset <- get(nam)[,c(q)]
+      dset <- Filter(function(x) -> {x >= 0}, get(nam)[,c(q)])
       # hist(dset)
       cat('\n\n')
-      mean_results <- boot(dset, boot_mean, R = 200);
+      mean_results <- boot(dset, boot_mean, R = 20000);
       print(boot.ci(mean_results, type="bca"))
       cat('\n\n')
       print(kable(tidy(summary(dset)), align="llllll" ))
@@ -105,7 +109,7 @@ for (scen in list("house", "bridge")) {
 
 # "HLO0", "HLO1", "HLO2",
 
-feats <- list("timeToSuccess", "numMistakes", "Question0", "Question1", "Question2", "Question3", "Question4",  "Question5", "Question6")
+feats <- list("timeToSuccess", "numMistakes", "HLO0", "HLO1", "HLO2", "Question0", "Question1", "Question2", "Question3", "Question4",  "Question5", "Question6")
 
 architects <- list("BLOCK", "MEDIUM", "HIGHLEVEL")
 
@@ -131,7 +135,7 @@ for (scen in list("house", "bridge")) {
       dset <- get(nam)[,c(q)]
       # hist(dset)
       cat('\n\n')
-      mean_results <- boot(dset, boot_mean, R = 200);
+      mean_results <- boot(dset, boot_mean, R = 20000);
       print(boot.ci(mean_results, type="bca"))
       cat('\n\n')
       print(kable(tidy(summary(dset)), align="llllll" ))
@@ -160,14 +164,14 @@ for (scen in list("house", "bridge")) {
 
 ### means for bridge (all)
 
-```{r}
+```{r, eval=FALSE}
 kable(bridgetableall, digits=2)
 ```
 
 
 ### means for house (all)
 
-```{r}
+```{r, eval=FALSE}
 kable(housetableall, digits=2)
 ```
 
@@ -223,8 +227,35 @@ m1<-wilcox.test(succbridgeMEDIUM$Question2, succbridgeHIGHLEVEL$Question2, alter
 print(m1)
 ```
 
-high level less successful finish than medium level slightly non-significant:
+
+Always clear what to do block vs medium:
 ```{r}
+
+m1<-wilcox.test(succbridgeBLOCK$Question1, succbridgeMEDIUM$Question1, alternative = "l", paired=FALSE)
+print(m1)
+```
+```{r}
+succbridgeMEDIUM$numBlocksDestroyed
+```
+
+
+Bridge: railing high level slower than medium:
+```{r}
+
+m1<-wilcox.test(succbridgeMEDIUM$HLO1, succbridgeHIGHLEVEL$HLO1, alternative = "l", paired=FALSE)
+print(m1)
+```
+
+Bridge: railing 2 high level faster than block level:
+```{r}
+
+m1<-wilcox.test(succbridgeBLOCK$HLO2, succbridgeHIGHLEVEL$HLO2, alternative = "g", paired=FALSE)
+print(m1)
+```
+
+
+high level less successful finish than medium level slightly non-significant:
+```{r, eval=FALSE}
 
 fishertable <- data %>% filter(scenario=="bridge") %>% filter(architect != "SimpleArchitect-BLOCK"	) %>% group_by(architect) %>% summarise(
   t=sum(wasSuccessful),
@@ -233,5 +264,20 @@ fishertable <- data %>% filter(scenario=="bridge") %>% filter(architect != "Simp
 
 fisher.test(data.matrix(fishertable))
 
+```
+
+## house
+
+block preferred over house "gave good instructions"
+```{r}
+
+m1<-wilcox.test(succhouseBLOCK$Question2, succhouseHIGHLEVEL$Question2, paired=FALSE)
+print(m1)
+```
+
+```{r}
+
+m1<-wilcox.test(succbridgeBLOCK$timeToSuccess, succbridgeHIGHLEVEL$timeToSuccess, paired=FALSE, alternative='l')
+print(m1)
 ```
 
