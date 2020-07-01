@@ -1,11 +1,11 @@
 ---
 title: "R Notebook"
 output:
-  html_document:
-    df_print: paged
-  html_notebook: default
   pdf_document:
      keep_tex: true
+  html_notebook: default
+  html_document:
+    df_print: paged
 ---
 
 ```{r}
@@ -34,9 +34,13 @@ boot_mean <- function(original_vector, resample_vector) {
 
 nonnegative <- Vectorize(function(x) {x >= 0})
 
+sigfunc  <- function (x) {if (x < 0.001) "\\*\\*\\*" else if (x < 0.01) "\\*\\*" else if (x < 0.05) "\\*" else if (x < 0.1) "." else "-"}
+
 wiltest <- function(a, b) {
   return(wilcox.test(Filter(nonnegative, a), Filter(nonnegative, b), paired=FALSE))
 }
+
+wiltesttostars <- function(a,b) {sigfunc(wiltest(a, b)$p.value)}
 
 ```
 
@@ -126,6 +130,11 @@ feats <- list("timeToSuccess", "numMistakes", "HLO0", "HLO1", "HLO2", "Question0
 
 architects <- list("BLOCK", "MEDIUM", "HIGHLEVEL")
 
+
+table_with_significance <-data.frame(matrix(nrow=length(feats), ncol=6))
+colnames(table_with_significance) <- list("BLOCK-bridge", "MEDIUM-bridge", "HIGHLEVEL-bridge", "BLOCK-house", "MEDIUM-house", "HIGHLEVEL-house")
+row.names(table_with_significance) <- feats
+
 bridgetable<-data.frame(matrix(nrow=length(feats), ncol=3))
 colnames(bridgetable) <- architects
 row.names(bridgetable) <- feats
@@ -158,9 +167,27 @@ for (scen in list("house", "bridge")) {
       } else {
         bridgetable[q, arch] <- mean(dset)[1]
       }
+      
+      if (arch == "BLOCK") {
+        table_with_significance[q, paste(arch,scen, sep="-")] <- round(mean(dset)[1], digits = 1)
+      }
+      if (arch == "MEDIUM") {
+        table_with_significance[q, paste(arch,scen, sep="-")] <- paste(round(mean(dset)[1], digits=1), wiltesttostars(dset, Filter(function(x) {x >= 0}, get(paste("succ",scen,"BLOCK", sep=""))[,c(q)])),
+                                                                       sep="/")
+      }
+      if (arch == "HIGHLEVEL") {
+        table_with_significance[q, paste(arch,scen, sep="-")] <- paste(round(mean(dset)[1], digits=1),
+                                                                       wiltesttostars(dset, Filter(function(x) {x >= 0}, get(paste("succ",scen,"BLOCK", sep=""))[,c(q)])),
+                                                                       wiltesttostars(dset, Filter(function(x) {x >= 0}, get(paste("succ",scen,"MEDIUM", sep=""))[,c(q)])),
+                                                                       sep="/")
+      }
     }
   }
 }
+
+
+
+
 
 ```
 
@@ -335,3 +362,10 @@ kable(housetable, digits=2)
 ```{r}
 kable(house_hlo_speed_table, digits = 2)
 ```
+
+# significance table
+
+```{r}
+kable(table_with_significance)
+```
+
