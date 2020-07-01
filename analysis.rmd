@@ -21,10 +21,23 @@ data <- transform(data, wasSuccessful = as.numeric(wasSuccessful)
                   ,HLO0 = HLO0 / 1000
                   ,HLO1 = HLO1 / 1000
                   ,HLO2 = HLO2 / 1000
+                  ,HLO3 = HLO3 / 1000
+                  ,HLO4 = HLO4 / 1000
+                  ,HLO5 = HLO5 / 1000
+                  ,HLO6 = HLO6 / 1000
+                  ,HLO7 = HLO7 / 1000
+
                   )
 boot_mean <- function(original_vector, resample_vector) {
     mean(original_vector[resample_vector])
 }
+
+nonnegative <- Vectorize(function(x) {x >= 0})
+
+wiltest <- function(a, b) {
+  return(wilcox.test(Filter(nonnegative, a), Filter(nonnegative, b), paired=FALSE))
+}
+
 ```
 
 ```{r}
@@ -48,7 +61,7 @@ data
 
 
 
-```{r, results='asis', eval=FALSE}
+```{r, results='asis'}
 
 feats <- list("timeToSuccess", "numMistakes", "Question0", "Question1", "Question2", "Question3", "Question4",  "Question5", "Question6")
 
@@ -71,7 +84,7 @@ for (scen in list("house", "bridge")) {
       nam <- paste("succ",scen,arch, sep="")
       assign(nam, data %>% filter(scenario == scen) %>% filter(architect == paste("SimpleArchitect-",arch, sep="")), envir = .GlobalEnv)
 
-      dset <- Filter(function(x) -> {x >= 0}, get(nam)[,c(q)])
+      dset <- Filter(function(x) {x >= 0}, get(nam)[,c(q)])
       # hist(dset)
       cat('\n\n')
       mean_results <- boot(dset, boot_mean, R = 20000);
@@ -132,7 +145,8 @@ for (scen in list("house", "bridge")) {
       nam <- paste("succ",scen,arch, sep="")
       assign(nam, succGames %>% filter(scenario == scen) %>% filter(architect == paste("SimpleArchitect-",arch, sep="")), envir = .GlobalEnv)
 
-      dset <- get(nam)[,c(q)]
+      dset <- Filter(function(x) {x >= 0}, get(nam)[,c(q)])
+
       # hist(dset)
       cat('\n\n')
       mean_results <- boot(dset, boot_mean, R = 20000);
@@ -160,36 +174,10 @@ for (scen in list("house", "bridge")) {
 
 # compact tables
 
-## all games
-
-### means for bridge (all)
-
-```{r, eval=FALSE}
-kable(bridgetableall, digits=2)
-```
 
 
-### means for house (all)
-
-```{r, eval=FALSE}
-kable(housetableall, digits=2)
-```
 
 
-## successful games
-
-### means for bridge (successful only)
-
-```{r}
-kable(bridgetable, digits=2)
-```
-
-
-### means for house (successful only)
-
-```{r}
-kable(housetable, digits=2)
-```
 
 
 # significance tests (because reviewers)
@@ -199,31 +187,31 @@ kable(housetable, digits=2)
 low level faster than high level:
 ```{r}
 
-m1<-wilcox.test(succbridgeBLOCK$timeToSuccess, succbridgeHIGHLEVEL$timeToSuccess, alternative = "l", paired=FALSE)
+m1<-wiltest(succbridgeBLOCK$timeToSuccess, succbridgeHIGHLEVEL$timeToSuccess)
 print(m1)
 ```
 medium faster than high level:
 ```{r}
 
-m1<-wilcox.test(succbridgeMEDIUM$timeToSuccess, succbridgeHIGHLEVEL$timeToSuccess, alternative = "l", paired=FALSE)
+m1<-wiltest(succbridgeMEDIUM$timeToSuccess, succbridgeHIGHLEVEL$timeToSuccess)
 print(m1)
 ```
 high level and block level seem to be similar-ish in "gave good instructions"
 ```{r}
 
-m1<-wilcox.test(succbridgeBLOCK$Question2, succbridgeHIGHLEVEL$Question2, paired=FALSE)
+m1<-wiltest(succbridgeBLOCK$Question2, succbridgeHIGHLEVEL$Question2)
 print(m1)
 ```
 medium preferred to block level:
 ```{r}
 
-m1<-wilcox.test(succbridgeMEDIUM$Question2, succbridgeBLOCK$Question2, alternative = "g", paired=FALSE)
+m1<-wiltest(succbridgeMEDIUM$Question2, succbridgeBLOCK$Question2)
 print(m1)
 ```
 medium preferred to high level:
 ```{r}
 
-m1<-wilcox.test(succbridgeMEDIUM$Question2, succbridgeHIGHLEVEL$Question2, alternative = "g", paired=FALSE)
+m1<-wiltest(succbridgeMEDIUM$Question2, succbridgeHIGHLEVEL$Question2)
 print(m1)
 ```
 
@@ -231,7 +219,7 @@ print(m1)
 Always clear what to do block vs medium:
 ```{r}
 
-m1<-wilcox.test(succbridgeBLOCK$Question1, succbridgeMEDIUM$Question1, alternative = "l", paired=FALSE)
+m1<-wiltest(succbridgeBLOCK$Question1, succbridgeMEDIUM$Question1)
 print(m1)
 ```
 ```{r}
@@ -242,14 +230,14 @@ succbridgeMEDIUM$numBlocksDestroyed
 Bridge: railing high level slower than medium:
 ```{r}
 
-m1<-wilcox.test(succbridgeMEDIUM$HLO1, succbridgeHIGHLEVEL$HLO1, alternative = "l", paired=FALSE)
+m1<-wiltest(succbridgeHIGHLEVEL$HLO1, succbridgeMEDIUM$HLO1)
 print(m1)
 ```
 
 Bridge: railing 2 high level faster than block level:
 ```{r}
 
-m1<-wilcox.test(succbridgeBLOCK$HLO2, succbridgeHIGHLEVEL$HLO2, alternative = "g", paired=FALSE)
+m1<-wiltest(succbridgeBLOCK$HLO2[], succbridgeHIGHLEVEL$HLO2)
 print(m1)
 ```
 
@@ -266,18 +254,84 @@ fisher.test(data.matrix(fishertable))
 
 ```
 
-## house
+# house HLO speeds
+```{r, results='asis'}
 
-block preferred over house "gave good instructions"
-```{r}
+house_hlo_speed_table <--data.frame(matrix(nrow=8, ncol=3))
+colnames(house_hlo_speed_table) <- architects
+# row.names(house_hlo_speed_table) <- feats
 
-m1<-wilcox.test(succhouseBLOCK$Question2, succhouseHIGHLEVEL$Question2, paired=FALSE)
-print(m1)
+for (col in seq(0,7)) {
+  cat("\n\n## ")
+  cat(col)
+  cat("\n\n")
+  for (arch in list("BLOCK", "MEDIUM", "HIGHLEVEL")) {
+      nam <- paste("succhouse",arch, sep="")
+      cname <- paste("HLO",col, sep="")
+      cat("\n### ")
+      cat(arch)
+      cat("\n\n")
+      dset <- Filter(nonnegative, get(nam)[,c(cname)])
+      mean_results <- boot(dset, boot_mean, R = 20000);
+      print(summary(dset))
+      cat("\n\n")
+      house_hlo_speed_table [col+1, arch] <- mean(dset)[1]
+
+    print(boot.ci(mean_results, type="bca"))
+  }
+}
 ```
 
+
+
+block preferred over highlevel "gave good instructions"
 ```{r}
 
-m1<-wilcox.test(succbridgeBLOCK$timeToSuccess, succbridgeHIGHLEVEL$timeToSuccess, paired=FALSE, alternative='l')
-print(m1)
+wiltest(succhouseBLOCK$Question2, succhouseHIGHLEVEL$Question2)
+wiltest(succhouseBLOCK$timeToSuccess, succhouseHIGHLEVEL$timeToSuccess)
+wiltest(succhouseBLOCK$timeToSuccess, succhouseMEDIUM$timeToSuccess)
+# significance tests for HLOs
+wiltest(succhouseBLOCK$HLO0, succhouseHIGHLEVEL$HLO0)
+wiltest(succhouseBLOCK$HLO1, succhouseHIGHLEVEL$HLO1)
+wiltest(succhouseBLOCK$HLO2, succhouseHIGHLEVEL$HLO2)
+wiltest(succhouseBLOCK$HLO3, succhouseHIGHLEVEL$HLO3)
+wiltest(succhouseBLOCK$HLO4, succhouseHIGHLEVEL$HLO4)
+wiltest(succhouseBLOCK$HLO5, succhouseHIGHLEVEL$HLO5)
+wiltest(succhouseBLOCK$HLO6, succhouseHIGHLEVEL$HLO6)
+```
+# pretty tables
+
+## all games
+
+### means for bridge (all)
+
+```{r, eval=FALSE}
+kable(bridgetableall, digits=2)
 ```
 
+
+### means for house (all)
+
+```{r, eval=FALSE}
+kable(housetableall, digits=2)
+```
+
+## successful games
+
+### means for bridge (successful only)
+
+```{r}
+kable(bridgetable, digits=2)
+```
+
+### means for house (successful only)
+
+```{r}
+kable(housetable, digits=2)
+```
+
+### Build speeds house (4x wall then rows) (successfull and in-order built only)
+
+```{r}
+kable(house_hlo_speed_table, digits = 2)
+```
