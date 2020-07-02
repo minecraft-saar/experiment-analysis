@@ -280,13 +280,42 @@ fishertable <- data %>% filter(scenario=="bridge") %>% filter(architect != "Simp
 fisher.test(data.matrix(fishertable))
 
 ```
+# bridge HLO speeds
+```{r, results='asis'}
+
+bridge_hlo_speed_table <--data.frame(matrix(nrow=3, ncol=3))
+colnames(bridge_hlo_speed_table) <- architects
+row.names(bridge_hlo_speed_table) <- list("floor", "railing 1", "railing 2")
+
+for (col in seq(0,2)) {
+  cat("\n\n## ")
+  cat(col)
+  cat("\n\n")
+  for (arch in list("BLOCK", "MEDIUM", "HIGHLEVEL")) {
+      nam <- paste("succbridge",arch, sep="")
+      cname <- paste("HLO",col, sep="")
+      cat("\n### ")
+      cat(arch)
+      cat("\n\n")
+      dset <- Filter(nonnegative, get(nam)[,c(cname)])
+      mean_results <- boot(dset, boot_mean, R = 20000);
+      meanci <- boot.ci(mean_results, type="bca") 
+      print(summary(dset))
+      cat("\n\n")
+      bridge_hlo_speed_table [col+1, arch] <- paste(round(mean(dset)[1],1), " (CI ", round(meanci$bca[4], 1), " ", round(meanci$bca[5], 1) , ")", sep = "")
+
+    print(boot.ci(mean_results, type="bca"))
+  }
+}
+```
+
 
 # house HLO speeds
 ```{r, results='asis'}
 
 house_hlo_speed_table <--data.frame(matrix(nrow=8, ncol=3))
 colnames(house_hlo_speed_table) <- architects
-# row.names(house_hlo_speed_table) <- feats
+row.names(house_hlo_speed_table) <- list("wall 1", "wall 2", "wall 3", "wall 4", "row 1", "row 2", "row 3", "row 4")
 
 for (col in seq(0,7)) {
   cat("\n\n## ")
@@ -300,9 +329,10 @@ for (col in seq(0,7)) {
       cat("\n\n")
       dset <- Filter(nonnegative, get(nam)[,c(cname)])
       mean_results <- boot(dset, boot_mean, R = 20000);
+      meanci <- boot.ci(mean_results, type="bca") 
       print(summary(dset))
       cat("\n\n")
-      house_hlo_speed_table [col+1, arch] <- mean(dset)[1]
+      house_hlo_speed_table [col+1, arch] <- paste(round(mean(dset)[1],1), " (CI ", round(meanci$bca[4], 1), " ", round(meanci$bca[5], 1), ")", sep = "")
 
     print(boot.ci(mean_results, type="bca"))
   }
@@ -360,7 +390,12 @@ kable(housetable, digits=2)
 ### Build speeds house (4x wall then rows) (successfull and in-order built only)
 
 ```{r}
-kable(house_hlo_speed_table, digits = 2)
+kable(house_hlo_speed_table)
+```
+
+### build speeds bridge
+```{r}
+kable(bridge_hlo_speed_table)
 ```
 
 # significance table
