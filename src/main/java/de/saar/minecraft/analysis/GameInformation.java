@@ -10,7 +10,6 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import de.saar.coli.minecraft.relationextractor.BigBlock;
 import de.saar.coli.minecraft.relationextractor.Block;
 import de.saar.minecraft.broker.db.GameLogsDirection;
 import de.saar.minecraft.broker.db.Tables;
@@ -76,7 +75,9 @@ public class GameInformation {
                     .append("\n");
             qnum += 1;
         }
-        sb.append("scenario")
+        sb.append("gameid")
+          .append(separator)
+          .append("scenario")
           .append(separator)
           .append("architect")
           .append(separator)
@@ -101,11 +102,13 @@ public class GameInformation {
         return sb.append("\n").toString();
     }
     /**
-     * Returns Scenario Architect wassucessful timetosuccess numblocksplaced numblocksdestroyed nummistakes answers
+     * Returns gameid Scenario Architect wassucessful timetosuccess numblocksplaced numblocksdestroyed nummistakes answers
      * @param separator the separator of the fields
      */
     public String getCSVLine(String separator) {
         var sb = new StringBuilder()
+                .append(gameId)
+                .append(separator)
                 .append(getScenario())
                 .append(separator)
                 .append(getArchitect())
@@ -447,7 +450,7 @@ public class GameInformation {
      * The method assumes that all HLOs were built in the correct order. The duration for each HLO starts when the
      * previous HLO is finished (or for the first with the welcome message).
      */
-    public List<Pair<String, Integer>> getDurationPerHLO() {
+    public List<Pair<String, Integer>> getDurationPerHLOCurrentWorldBased() {
         assert wasSuccessful();
         if (getArchitect() == null) {
             return List.of();
@@ -607,7 +610,6 @@ public class GameInformation {
                 }
             }
         }
-
         if (getScenario().equals("bridge")) {
             return List.of(
                     new Pair<>("floor", (int) firstInstructionTime.until(hloPlans.get(0).getLeft(), MILLIS)),
@@ -641,6 +643,167 @@ public class GameInformation {
                 }
             }
         }
+    }
+
+    public List<Pair<String, Integer>> getDurationPerHLO() {
+        assert wasSuccessful();
+        if (getArchitect() == null) {
+            return List.of();
+        }
+        Result<GameLogsRecord> result = jooq.selectFrom(GAME_LOGS)
+                .where(GAME_LOGS.GAMEID.equal(gameId))
+                .orderBy(GAME_LOGS.ID.asc())
+                .fetch();
+
+        List<MutablePair<LocalDateTime, List<Block>>> hloPlans;
+        Set<Block> presentBlocks;
+        String scenario = getScenario();
+        if (scenario.equals("house")) {
+            hloPlans = readHighlevelPlan("/de/saar/minecraft/domains/house-highlevel.plan");
+            presentBlocks = readInitialWorld("/de/saar/minecraft/worlds/house.csv");
+        } else if (scenario.equals("bridge")) {
+            hloPlans = readBlockPlan("/de/saar/minecraft/domains/bridge-block.plan");
+            presentBlocks = readInitialWorld("/de/saar/minecraft/worlds/bridge.csv");
+        } else {
+            throw new NotImplementedException("Scenario {} is not implemented", scenario);
+        }
+
+        LocalDateTime firstInstructionTime = null;
+
+        // Add initial blocks
+        for (GameLogsRecord record: result) {
+            if (record.getMessageType().equals("BlockPlacedMessage")) {
+                JsonObject json = JsonParser.parseString(record.getMessage()).getAsJsonObject();
+                if (json.has("x") && json.has("y") && json.has("z")) {
+                    presentBlocks.add(new Block(json.get("x").getAsInt(), json.get("y").getAsInt(), json.get("z").getAsInt()));
+                } else {
+                    logger.error("Block log at {} is not complete: {}", record.getTimestamp(), json);
+                }
+            } else if (record.getMessageType().equals("BlockDestroyedMessage")) {
+                JsonObject json = JsonParser.parseString(record.getMessage()).getAsJsonObject();
+                if (json.has("x") && json.has("y") && json.has("z")) {
+                    presentBlocks.remove(new Block(json.get("x").getAsInt(), json.get("y").getAsInt(), json.get("z").getAsInt()));
+                } else {
+                    logger.error("Block log at {} is not complete: {}", record.getTimestamp(), json);
+                }
+            } else if (record.getMessageType().equals("TextMessage")) {
+                if (firstInstructionTime == null) {
+                    if (record.getMessage().contains("Great!")) {
+                        firstInstructionTime = record.getTimestamp();
+                    }
+                } else if (record.getMessage().contains("Congratulations, you are done building a")) {
+                    if (hloPlans.get(hloPlans.size() - 1).getLeft() == null) {
+                        hloPlans.get(hloPlans.size() - 1).setLeft(record.getTimestamp());
+                    }
+                }
+            }
+            for (MutablePair<LocalDateTime, List<Block>> hlo : hloPlans) {
+                if (hlo.getLeft() == null) {
+                    boolean allPresent = true;
+                    for (Block block : hlo.getRight()) {
+                        if (!presentBlocks.contains(block)) {
+                            allPresent = false;
+                            break;
+                        }
+                    }
+                    if (allPresent) {
+                        hlo.setLeft(record.getTimestamp());
+                    }
+                }
+            }
+        }
+
+        if (getScenario().equals("bridge")) {
+            return List.of(
+                    new Pair<>("floor", (int) firstInstructionTime.until(hloPlans.get(0).getLeft(), MILLIS)),
+                    new Pair<>("railing", (int) hloPlans.get(0).getLeft().until(hloPlans.get(1).getLeft(), MILLIS)),
+                    new Pair<>("railing", (int) hloPlans.get(1).getLeft().until(hloPlans.get(2).getLeft(), MILLIS))
+            );
+        } else if (getScenario().equals("house")) {
+            return List.of(
+                    new Pair<>("wall", (int) firstInstructionTime.until(hloPlans.get(0).getLeft(), MILLIS)),
+                    new Pair<>("wall", (int) hloPlans.get(0).getLeft().until(hloPlans.get(1).getLeft(), MILLIS)),
+                    new Pair<>("wall", (int) hloPlans.get(1).getLeft().until(hloPlans.get(2).getLeft(), MILLIS)),
+                    new Pair<>("wall", (int) hloPlans.get(2).getLeft().until(hloPlans.get(3).getLeft(), MILLIS)),
+                    new Pair<>("row", (int) hloPlans.get(3).getLeft().until(hloPlans.get(4).getLeft(), MILLIS)),
+                    new Pair<>("row", (int) hloPlans.get(4).getLeft().until(hloPlans.get(5).getLeft(), MILLIS)),
+                    new Pair<>("row", (int) hloPlans.get(5).getLeft().until(hloPlans.get(6).getLeft(), MILLIS)),
+                    new Pair<>("row", (int) hloPlans.get(6).getLeft().until(hloPlans.get(7).getLeft(), MILLIS))
+            );
+        }
+        return List.of();
+    }
+
+    private List<MutablePair<LocalDateTime, List<Block>>> readBlockPlan(String filename) {
+        InputStream inputStream = GameInformation.class.getResourceAsStream(filename);
+        String blockPlan = new BufferedReader(new InputStreamReader(inputStream))
+                .lines()
+                .collect(Collectors.joining("\n"));
+        String[] steps = blockPlan.split("\n");
+        List<Block> currentBlocks = new ArrayList<>();
+        List<MutablePair<LocalDateTime, List<Block>>> hloPlans = new ArrayList<>();
+        for (String step: steps) {
+            if (step.contains("-starting")) {
+                currentBlocks = new ArrayList<>();
+            } else if (step.contains("!place-block")) {
+                String[] stepArray = step.split(" ");
+                int x = (int) Double.parseDouble(stepArray[2]);
+                int y = (int) Double.parseDouble(stepArray[3]);
+                int z = (int) Double.parseDouble(stepArray[4]);
+                currentBlocks.add(new Block(x, y, z));
+            } else if (step.contains("-finished")) {
+                hloPlans.add(new MutablePair<>(null, currentBlocks));
+            }
+        }
+        return hloPlans;
+    }
+
+    private List<MutablePair<LocalDateTime, List<Block>>> readHighlevelPlan(String filename) {
+        InputStream inputStream = GameInformation.class.getResourceAsStream(filename);
+        String blockPlan = new BufferedReader(new InputStreamReader(inputStream))
+                .lines()
+                .collect(Collectors.joining("\n"));
+        String[] steps = blockPlan.split("\n");
+        List<Block> currentBlocks = new ArrayList<>();
+        List<MutablePair<LocalDateTime, List<Block>>> hloPlans = new ArrayList<>();
+        for (String step: steps) {
+            if (step.contains("!build-")) {
+                if (!currentBlocks.isEmpty()) {
+                    hloPlans.add(new MutablePair<>(null, currentBlocks));
+                }
+                currentBlocks = new ArrayList<>();
+            } else if (step.contains("!place-block-hidden")) {
+                String[] stepArray = step.split(" ");
+                int x = (int) Double.parseDouble(stepArray[2]);
+                int y = (int) Double.parseDouble(stepArray[3]);
+                int z = (int) Double.parseDouble(stepArray[4]);
+                currentBlocks.add(new Block(x, y, z));
+            }
+        }
+        hloPlans.add(new MutablePair<>(null, currentBlocks));
+        return hloPlans;
+    }
+
+    private Set<Block> readInitialWorld(String filename) {
+        Set<Block> worldBlocks = new HashSet<Block>();
+        InputStream inputStream = GameInformation.class.getResourceAsStream(filename);
+        String blockDescriptions = new BufferedReader(new InputStreamReader(inputStream))
+                .lines()
+                .collect(Collectors.joining("\n"));
+        String[] lines = blockDescriptions.split("\n");
+        for (String line: lines) {
+            if (line.startsWith("#")) {
+                continue;
+            }
+            String[] blockInfo = line.split(",");
+            int x = Integer.parseInt(blockInfo[0]);
+            int y = Integer.parseInt(blockInfo[1]);
+            int z = Integer.parseInt(blockInfo[2]);
+            // TODO: is the block type important? Not all of the initial blocks are unique blocks
+            String typeName = blockInfo[3];
+            worldBlocks.add(new Block(x,y,z));
+        }
+        return  worldBlocks;
     }
 
     /**
@@ -697,6 +860,14 @@ public class GameInformation {
                 durations.append("ms");
             }
 
+            List<Pair<String, Integer>> HLODurations2 = getDurationPerHLOCurrentWorldBased();
+            durations.append("\n\n# Durations per High-level object (current world based)");
+            for (var pair : HLODurations2) {
+                durations.append("\n - ").append(pair.getFirst());
+                durations.append(" : ").append(pair.getSecond());
+                durations.append("ms");
+            }
+
             List<Pair<String, Integer>> instructionDurations = getDurationPerInstruction();
             durations.append("\n\n# Durations per Instruction");
             for (var pair : instructionDurations) {
@@ -717,4 +888,48 @@ public class GameInformation {
         }
         writer.close();
     }
+
+    public void printBlocksUntilTimestamp(LocalDateTime time) {
+        Result<GameLogsRecord> result = jooq.selectFrom(GAME_LOGS)
+                .where(GAME_LOGS.GAMEID.equal(gameId))
+                .and(GAME_LOGS.MESSAGE_TYPE.equal("BlockPlacedMessage")
+                        .or(GAME_LOGS.MESSAGE_TYPE.equal("BlockDestroyedMessage")))
+                .and(GAME_LOGS.TIMESTAMP.lessThan(time))
+                .orderBy(GAME_LOGS.ID.asc())
+                .fetch();
+
+        List<Block> placedBlocks = new ArrayList<>();
+        List<Block> destroyedBlocks = new ArrayList<>();
+        List<Block> presentBlocks = new ArrayList<>();
+
+        for (GameLogsRecord record: result) {
+            JsonObject json = JsonParser.parseString(record.getMessage()).getAsJsonObject();
+            Block curBlock = new Block(json.get("x").getAsInt(), json.get("y").getAsInt(), json.get("z").getAsInt());
+            if (record.getMessageType().equals("BlockPlacedMessage")) {
+                placedBlocks.add(curBlock);
+                presentBlocks.add(curBlock);
+            } else if (record.getMessageType().equals("BlockDestroyedMessage")) {
+                destroyedBlocks.add(curBlock);
+                presentBlocks.remove(curBlock);
+            } else {
+                throw new RuntimeException("Wrong message type " + record.getMessageType());
+            }
+        }
+
+        System.out.println("Placed Blocks");
+        for (Block block: placedBlocks) {
+            System.out.println(" - " + block.toString());
+        }
+
+        System.out.println("Destroyed Blocks");
+        for (Block block: destroyedBlocks) {
+            System.out.println(" - " + block.toString());
+        }
+
+        System.out.println("Present Blocks");
+        for (Block block: presentBlocks) {
+            System.out.println(" - " + block.toString());
+        }
+    }
+
 }
