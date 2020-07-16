@@ -1,12 +1,6 @@
 package de.saar.minecraft.analysis;
 
 import de.saar.minecraft.broker.db.Tables;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.jooq.DSLContext;
-import org.jooq.SQLDialect;
-import org.jooq.impl.DSL;
-
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -16,6 +10,12 @@ import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.util.List;
 import java.util.stream.Collectors;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.jooq.DSLContext;
+import org.jooq.SQLDialect;
+import org.jooq.impl.DSL;
+
 
 public class ExperimentAnalysis {
 
@@ -87,6 +87,12 @@ public class ExperimentAnalysis {
 
     }
 
+    public void makeAnalysis(String analysisName, List<GameInformation> gi) throws IOException {
+        File file = new File(config.getDirName(), analysisName);
+        var info = new AggregateInformation(gi);
+        info.writeAnalysis(file);
+    }
+
     public void makePartialAnalysis(String scenario, String architect, boolean onlySuccessful) throws IOException {
         List<GameInformation> gamedata = gameInformations;
 
@@ -116,12 +122,6 @@ public class ExperimentAnalysis {
         makeAnalysis(scenario + "-" + architect + "-" + onlySuccessful + ".md", gamedata);
     }
 
-    public void makeAnalysis(String analysisName, List<GameInformation> gi) throws IOException {
-        File file = new File(config.getDirName(), analysisName);
-        var info = new AggregateInformation(gi);
-        info.writeAnalysis(file);
-    }
-
     public void makeScenarioAnalysis() throws IOException {
         Path basePath = Paths.get(config.getDirName(), "per_scenario");
         if (!basePath.toFile().isDirectory() && !basePath.toFile().mkdir()) {
@@ -129,7 +129,6 @@ public class ExperimentAnalysis {
             throw new IOException("Could not create directory " + basePath.toString());
         }
         for (String scenario: scenarios) {
-
             var info = new AggregateInformation(
                     gameInformations
                             .stream()
@@ -180,11 +179,14 @@ public class ExperimentAnalysis {
         if (!basePath.toFile().isDirectory() && !basePath.toFile().mkdir()) {
             throw new IOException("Could not create directory " + basePath.toString());
         }
-        GameInformation info = gameInformations.stream().filter((x) -> x.gameId == gameId).findFirst().orElse(null);
+        GameInformation info = gameInformations.stream()
+                .filter((x) -> x.gameId == gameId)
+                .findFirst()
+                .orElse(null);
         String filename = String.format("game-%d.md", info.gameId);
         File file = new File(basePath.toString(), filename);
         info.writeAnalysis(file);
-
+        // info.printBlocksUntilTimestamp(LocalDateTime.of(2020,6,15, 11,17,25));
     }
 
     /**
@@ -195,7 +197,7 @@ public class ExperimentAnalysis {
         File file = new File(config.getDirName(), "data.csv");
         // only save complete games with questionnaire
         var gi = gameInformations.stream()
-                .filter((x) -> ! x.getNumericQuestions().isEmpty() )
+                .filter((x) -> ! x.getNumericQuestions().isEmpty())
                 .collect(Collectors.toList());
         var info = new AggregateInformation(gi);
         info.saveCSV(file);

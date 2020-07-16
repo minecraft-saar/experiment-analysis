@@ -23,6 +23,13 @@ public class AggregateInformation {
 
     private static final Logger logger = LogManager.getLogger(AggregateInformation.class);
 
+    /**
+     * Saves all game informations in a csv file with the format
+     * gameid, scenario, architect, wasSuccessful, timeToSuccess, numBlocksPlaced,
+     * numBlocksDestroyed, numMistakes, HLO1, ... , HLO7, question 1, ..., question n
+     * @param file a csv file
+     * @throws IOException if it cannot write to the provided file
+     */
     public void saveCSV(File file) throws IOException {
         var sep = ",";
         FileWriter writer = new FileWriter(file);
@@ -44,7 +51,7 @@ public class AggregateInformation {
                 durations.add(info.getTimeToSuccess());
             }
         }
-        float sum = (float)durations.stream().reduce((long) 0, Long::sum);
+        float sum = (float) durations.stream().reduce((long) 0, Long::sum);
         return sum / durations.size();
     }
 
@@ -55,7 +62,7 @@ public class AggregateInformation {
                 numSuccessFull++;
             }
         }
-        return (float)numSuccessFull / games.size();
+        return (float) numSuccessFull / games.size();
     }
 
     public float getAverageNumMistakes() {
@@ -63,7 +70,7 @@ public class AggregateInformation {
         for (GameInformation info: games) {
             totalMistakes += info.getNumMistakes();
         }
-        return (float)totalMistakes / games.size();
+        return (float) totalMistakes / games.size();
     }
 
     public float getAverageNumBlocksPlaced() {
@@ -71,7 +78,7 @@ public class AggregateInformation {
         for (GameInformation info: games) {
             totalBlocks += info.getNumBlocksPlaced();
         }
-        return (float)totalBlocks / games.size();
+        return (float) totalBlocks / games.size();
     }
 
     public float getAverageNumBlocksDestroyed() {
@@ -79,12 +86,11 @@ public class AggregateInformation {
         for (GameInformation info: games) {
             totalBlocks += info.getNumBlocksDestroyed();
         }
-        return (float)totalBlocks / games.size();
+        return (float) totalBlocks / games.size();
     }
 
     /**
-     * Fraction of players that made at least one mistake
-     * @return
+     * @return Fraction of players that made at least one mistake
      */
     public float getFractionMistakes() {
         int withMistakes = 0;
@@ -93,10 +99,15 @@ public class AggregateInformation {
                 withMistakes++;
             }
         }
-        return (float)withMistakes / games.size();
+        return (float) withMistakes / games.size();
     }
 
-    public HashMap<Integer,Integer> getMistakeDistribution() {
+    /**
+     *
+     * @return a hashmap with number of mistakes as keys and the number of player that made this
+     * amount as values
+     */
+    public HashMap<Integer, Integer> getMistakeDistribution() {
         HashMap<Integer, Integer> distribution = new HashMap<>();
         for (GameInformation info: games) {
             int mistakes = info.getNumMistakes();
@@ -105,6 +116,11 @@ public class AggregateInformation {
         return distribution;
     }
 
+    /**
+     * Computes answer distributions for Likert questions.
+     * For each question: question text, mean, standard deviation, median, minimum, maximum
+     * @return a list with the values above for each question
+     */
     public List<Answer> getAnswerDistribution() {
         HashMap<String, DescriptiveStatistics> collection = new HashMap<>();
 
@@ -133,7 +149,11 @@ public class AggregateInformation {
         return distribution;
     }
 
-    public HashMap<String,List<String>> getAllFreeTextResponses() {
+    /**
+     * @return a hashmap with questions as keys and a list of free text answers to that question
+     * as values
+     */
+    public HashMap<String, List<String>> getAllFreeTextResponses() {
         HashMap<String, List<String>> collection = new HashMap<>();
         for (GameInformation info: games) {
             for (Pair<String, String> qa : info.getFreeformQuestions()) {
@@ -148,8 +168,13 @@ public class AggregateInformation {
         return collection;
     }
 
-    public List<Pair<String,Integer>> getAverageDurationPerHLO() {
-        // TODO: only works if all games have the same scenario
+    /**
+     * Works only if all games have the same scenario, otherwise it returns null.
+     * @return A list of high-level object names and the average duration in milliseconds for
+     * building them
+     */
+    public List<Pair<String, Integer>> getAverageDurationPerHLO() {
+        //
         List<Pair<String, List<Integer>>> addedDurations = new ArrayList<>();
         for (GameInformation info: games) {
             if (!info.wasSuccessful()) {
@@ -164,8 +189,9 @@ public class AggregateInformation {
             for (int i = 0; i < current.size(); i++) {
                 String objectName = current.get(i).getFirst();
                 int newDuration = current.get(i).getSecond();
-                if (!addedDurations.get(i).getFirst().equals(objectName)){
+                if (!addedDurations.get(i).getFirst().equals(objectName)) {
                     logger.error("wrong high-level object");
+                    return null;
                 }
                 var durations = addedDurations.get(i).getSecond();
                 durations.add(newDuration);
@@ -173,28 +199,34 @@ public class AggregateInformation {
         }
         return addedDurations.stream()
                 .map((x) -> new Pair<>(
-                        x.getFirst(),(x.getSecond().stream().reduce(0, Integer::sum)) / x.getSecond().size()))
+                        x.getFirst(),
+                        (x.getSecond().stream().reduce(0, Integer::sum)) / x.getSecond().size()))
                 .collect(Collectors.toList());
     }
 
+    /**
+     * Computes the aggregate analysis and saves it in a markdown file.
+     * @param file a markdown file
+     * @throws IOException if it cannot write to the provided file
+     */
     public void writeAnalysis(File file) throws IOException {
         FileWriter writer = new FileWriter(file);
 
-        String overview = "# Overview" + "\n - Number of games: " +
-                getNumGames() +
-                "\n - Average game duration: " +
-                getAverageGameDuration() +
-                "\n - Fraction of successful games: " +
-                getFractionSuccessfulGames() +
-                "\n - Fraction of players making a mistake: " +
-                getFractionMistakes() +
-                "\n - Average number of mistakes: " +
-                getAverageNumMistakes() +
-                "\n - Average number of blocks placed: " +
-                getAverageNumBlocksPlaced() +
-                "\n - Average number of blocks destroyed: " +
-                getAverageNumBlocksDestroyed() +
-                "\n\n";
+        String overview = "# Overview" + "\n - Number of games: "
+                + getNumGames()
+                + "\n - Average game duration: "
+                + getAverageGameDuration()
+                + "\n - Fraction of successful games: "
+                + getFractionSuccessfulGames()
+                + "\n - Fraction of players making a mistake: "
+                + getFractionMistakes()
+                + "\n - Average number of mistakes: "
+                + getAverageNumMistakes()
+                + "\n - Average number of blocks placed: "
+                + getAverageNumBlocksPlaced()
+                + "\n - Average number of blocks destroyed: "
+                + getAverageNumBlocksDestroyed()
+                + "\n\n";
         writer.write(overview);
 
         StringBuilder gameList = new StringBuilder("\n# Games in this category\n");
@@ -207,8 +239,8 @@ public class AggregateInformation {
 
         likert.append("| Question | Mean | Standard Deviation | Median | Minimum | Maximum |\n");
         likert.append("| -------- | ----:| ------------------:| ------:| -------:| -------:|\n");
-        for (Answer answer: getAnswerDistribution()){
-            likert.append (String.format("%s | %.2f | %.2f | %d | %d | %d |\n",
+        for (Answer answer: getAnswerDistribution()) {
+            likert.append(String.format("%s | %.2f | %.2f | %d | %d | %d |\n",
                     answer.getQuestion(),
                     answer.getMean(),
                     answer.getStdDeviation(),
@@ -229,9 +261,14 @@ public class AggregateInformation {
         writer.write(free.toString());
         writer.flush();
         StringBuilder hloDurations = new StringBuilder("\n\n# Average Duration per HLO");
-        for (var duration: getAverageDurationPerHLO()) {
-            hloDurations.append("\n - ").append(duration.getFirst());
-            hloDurations.append(": ").append(duration.getSecond());
+        var durations = getAverageDurationPerHLO();
+        if (durations == null) {
+            hloDurations.append("\n Not applicable");
+        } else {
+            for (var duration : durations) {
+                hloDurations.append("\n - ").append(duration.getFirst());
+                hloDurations.append(": ").append(duration.getSecond());
+            }
         }
         writer.write(hloDurations.toString());
         writer.close();

@@ -5,14 +5,12 @@ import static de.saar.minecraft.broker.db.Tables.GAME_LOGS;
 import static java.time.temporal.ChronoUnit.MILLIS;
 import static java.time.temporal.ChronoUnit.SECONDS;
 
-import com.google.gson.Gson;
-import com.google.gson.JsonArray;
-import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import de.saar.coli.minecraft.relationextractor.Block;
 import de.saar.minecraft.broker.db.GameLogsDirection;
 import de.saar.minecraft.broker.db.Tables;
+import de.saar.minecraft.broker.db.tables.records.GameLogsRecord;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -22,13 +20,12 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-import de.saar.minecraft.broker.db.tables.records.GameLogsRecord;
 import org.apache.commons.lang3.NotImplementedException;
 import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.commons.lang3.tuple.MutablePair;
@@ -70,7 +67,8 @@ public class GameInformation {
                 .stream()
                 .sorted(Comparator.comparing(Pair::getFirst))
                 .collect(Collectors.toList())) {
-            sb.append("# Question"+qnum+": ")
+            // TODO: escape commas in questions
+            sb.append("# Question" + qnum + ": ")
                     .append(qa.getFirst())
                     .append("\n");
             qnum += 1;
@@ -101,8 +99,10 @@ public class GameInformation {
         }
         return sb.append("\n").toString();
     }
+
     /**
-     * Returns gameid Scenario Architect wassucessful timetosuccess numblocksplaced numblocksdestroyed nummistakes answers
+     * Returns gameid Scenario Architect wassucessful timetosuccess numblocksplaced
+     * numblocksdestroyed nummistakes answers
      * @param separator the separator of the fields
      */
     public String getCSVLine(String separator) {
@@ -213,6 +213,10 @@ public class GameInformation {
             .fetchOne(0, int.class);
     }
 
+    /**
+     *
+     * @return List of question-answer pairs where the answer is a number
+     */
     public List<Pair<String, Integer>> getNumericQuestions() {
         return jooq.selectFrom(Tables.QUESTIONNAIRES)
                 .where(Tables.QUESTIONNAIRES.GAMEID.equal(gameId))
@@ -223,6 +227,10 @@ public class GameInformation {
                 .collect(Collectors.toList());
     }
 
+    /**
+     *
+     * @return List of question-answer pairs where the answer is not a number
+     */
     public List<Pair<String, String>> getFreeformQuestions() {
         return jooq.selectFrom(Tables.QUESTIONNAIRES)
                 .where(Tables.QUESTIONNAIRES.GAMEID.equal(gameId))
@@ -314,7 +322,6 @@ public class GameInformation {
                 .orderBy(GAME_LOGS.ID.asc())
                 .fetch();
 
-
         List<Integer> durations = new ArrayList<>();
         if (result.isNotEmpty()) {
             // add duration until first block placed
@@ -361,7 +368,6 @@ public class GameInformation {
                 }
             }
         }
-
         return durations;
     }
 
@@ -413,23 +419,14 @@ public class GameInformation {
 
             } else if (record.getMessageType().equals("BlockPlacedMessage")) {
                 // Check instruction and object
-                JsonObject jsonObject = JsonParser.parseString(record.getMessage()).getAsJsonObject();
-                // TODO: deal with incomplete BlockPlacedMessages
-                if (!jsonObject.has("x") || !jsonObject.has("y") || !jsonObject.has("z")) {
-                    continue;
-                }
-                int x = jsonObject.get("x").getAsInt();
-                int y = jsonObject.get("y").getAsInt();
-                int z = jsonObject.get("z").getAsInt();
-
-                Block newBlock = new Block(x, y, z);
+                Block newBlock = getBlockFromRecord(record);
                 if (currentObjectLeft == null) {
                     // no block should be placed
                     continue;
                 }
                 if (currentObjectLeft.equals(newBlock)) {
                     // correct block
-                    int duration = (int)oldTimestamp.until(record.getTimestamp(), MILLIS);
+                    int duration = (int) oldTimestamp.until(record.getTimestamp(), MILLIS);
                     durations.add(new Pair<>(oldInstruction, duration));
                     oldInstruction = null;
                     oldTimestamp = null;
@@ -441,210 +438,39 @@ public class GameInformation {
         return durations;
     }
 
+    private Block getBlockFromRecord(GameLogsRecord record) {
+        JsonObject json = JsonParser.parseString(record.getMessage()).getAsJsonObject();
+        // If Block logs are incomplete, the missing values are the default 0
+        // This should only occur for games that were played before
+        // TODO: data of setting up infrastructure commit 96b2fde on the server
+        int x = 0, y = 0, z = 0;
+        if (json.has("x")) {
+            x = json.get("x").getAsInt();
+        } else {
+            logger.error("Missing x value for block at {}: {}", record.getTimestamp(), json);
+        }
+        if (json.has("y")) {
+            y = json.get("y").getAsInt();
+        } else {
+            logger.error("Missing y value for block at {}: {}", record.getTimestamp(), json);
+        }
+        if (json.has("z")) {
+            z = json.get("z").getAsInt();
+        } else {
+            logger.error("Missing z value for block at {}: {}", record.getTimestamp(), json);
+        }
+        return new Block(x, y, z);
+    }
+
     /**
      * Returns the time the user needed to build each HLO in the scenario, i.e. the walls
      * in the house scenario and the floor and railings in the bridge scenario.
      * e.g. [("wall", 8000), ("wall", 5000), ...] or [("floor", 3000), ... ("railing", 4000)]
      * Regardless of whether it was instructed per block or as a HLO.
      *
-     * The method assumes that all HLOs were built in the correct order. The duration for each HLO starts when the
-     * previous HLO is finished (or for the first with the welcome message).
+     * <p>The method assumes that all HLOs were built in the correct order. The duration for each
+     * HLO starts when the previous HLO is finished (or for the first with the welcome message).</p>
      */
-    public List<Pair<String, Integer>> getDurationPerHLOCurrentWorldBased() {
-        assert wasSuccessful();
-        if (getArchitect() == null) {
-            return List.of();
-        }
-        Result<GameLogsRecord> result = jooq.selectFrom(GAME_LOGS)
-                .where(GAME_LOGS.GAMEID.equal(gameId))
-                .orderBy(GAME_LOGS.ID.asc())
-                .fetch();
-
-        LocalDateTime firstInstructionTime = null;
-        List<MutablePair<LocalDateTime, List<Block>>> hloPlans;
-        if (getScenario().equals("bridge")) {
-            var floorBlocks = List.of(
-                    new Block(7, 66, 6),
-                    new Block(8, 66, 6),
-                    new Block(9, 66, 6),
-                    new Block(10, 66, 6),
-                    new Block(10, 66, 7),
-                    new Block(9, 66, 7),
-                    new Block(8, 66, 7),
-                    new Block(7, 66, 7),
-                    new Block(6, 66, 7),
-                    new Block(6, 66, 8),
-                    new Block(7, 66, 8),
-                    new Block(8, 66, 8),
-                    new Block(9, 66, 8)
-            );
-            var firstRailingBlocks = List.of(
-                    new Block(10, 67, 6),
-                    new Block(6, 67, 6),
-                    new Block(6, 68, 6),
-                    new Block(7, 68, 6),
-                    new Block(8, 68, 6),
-                    new Block(9, 68, 6),
-                    new Block(10, 68, 6)
-            );
-            var secondRailingBlocks = List.of(
-                    new Block(6, 67, 8),
-                    new Block(10, 67, 8),
-                    new Block(10, 68, 8),
-                    new Block(9, 68, 8),
-                    new Block(8, 68, 8),
-                    new Block(7, 68, 8),
-                    new Block(6, 68, 8)
-            );
-
-            hloPlans = List.of(
-                    new MutablePair<>(null, floorBlocks),
-                    new MutablePair<>(null, firstRailingBlocks),
-                    new MutablePair<>(null, secondRailingBlocks)
-            );
-        } else if (getScenario().equals("house")) {
-            String scenario = getScenario();
-            // TODO read block plan from
-            // '/shared-resources/src/main/resources/de/saar/minecraft/domains/house-block.plan'
-
-            InputStream inputStream = GameInformation.class.getResourceAsStream("/de/saar/minecraft/domains/" + scenario + "-highlevel.plan");
-            String blockPlan = new BufferedReader(new InputStreamReader(inputStream))
-                    .lines()
-                    .collect(Collectors.joining("\n"));
-            String[] steps = blockPlan.split("\n");
-            List<Block> currentBlocks = new ArrayList<>();
-            hloPlans = new ArrayList<>();
-            for (String step: steps) {
-                if (step.contains("!build-")) {
-                    if (!currentBlocks.isEmpty()) {
-                        hloPlans.add(new MutablePair<>(null, currentBlocks));
-                    }
-                    currentBlocks = new ArrayList<>();
-                } else if (step.contains("!place-block-hidden")) {
-                    String[] stepArray = step.split(" ");
-                    int x = (int) Double.parseDouble(stepArray[2]);
-                    int y = (int) Double.parseDouble(stepArray[3]);
-                    int z = (int) Double.parseDouble(stepArray[4]);
-                    currentBlocks.add(new Block(x, y, z));
-//                } else if (step.contains("-finished")) {
-//                    hloPlans.add(new MutablePair<>(null, currentBlocks));
-                }
-
-            }
-            hloPlans.add(new MutablePair<>(null, currentBlocks));
-
-        } else {
-            throw new NotImplementedException("Unknown scenario: " + getScenario());
-        }
-        for (GameLogsRecord record: result) {
-            if (record.getMessageType().equals("CurrentWorld")) {
-                JsonArray jsonArray = JsonParser.parseString(record.getMessage()).getAsJsonArray();
-                Gson gson = new Gson();
-                Set<Block> world = null;
-                switch (getArchitect()) {
-                    case "SimpleArchitect-BLOCK": {
-                        Block[] blockArray = gson.fromJson(jsonArray, Block[].class);
-                        world = Set.of(blockArray);
-                        break;
-                    }
-                    case "SimpleArchitect-MEDIUM":
-                    case "SimpleArchitect-HIGHLEVEL": {
-                        world = new HashSet<>();
-                        for (JsonElement el: jsonArray) {
-                            if (el.isJsonObject()) {
-                                JsonObject curObject = el.getAsJsonObject();
-                                String type = curObject.get("type").getAsString();
-                                switch (type) {
-                                    case "Block": {
-                                        world.add(gson.fromJson(curObject, Block.class));
-                                        break;
-                                    }
-                                    case "Floor":
-                                    case "Railing":
-                                    case "Wall":
-                                    case "Row": {
-                                        addBlocksFromChildren(world, curObject);
-                                        break;
-                                    }
-                                    case "UniqueBlock":
-                                        // is not placed by the player
-                                        // but is present in highlevel plan
-                                        world.add(gson.fromJson(curObject, Block.class));
-                                        continue;
-                                    default:
-                                        throw new NotImplementedException("Unknown Minecraft object type: " + type);
-                                }
-                            }
-                        }
-                        break;
-                    }
-                    case "DummyArchitect": {
-                        // no HLO instructions
-                        return List.of();
-                    }
-                    default:
-                        throw new NotImplementedException("Unknown Architect: " + getArchitect());
-                }
-                for (MutablePair<LocalDateTime, List<Block>> hlo: hloPlans) {
-                    if (hlo.getLeft() == null) {
-                        boolean allPresent = true;
-                        for (Block block: hlo.getRight()) {
-                            if (!world.contains(block)) {
-                                allPresent = false;
-                                break;
-                            }
-                        }
-                        if (allPresent) {
-                            hlo.setLeft(record.getTimestamp());
-                        }
-                    }
-                }
-
-            } else if (record.getMessageType().equals("TextMessage") ) {
-                if (record.getMessage().contains("Welcome! I will try to instruct you to build a ")) {
-                    firstInstructionTime = record.getTimestamp();
-                } else if (record.getMessage().contains("Congratulations, you are done building a")) {
-                    if (hloPlans.get(hloPlans.size() - 1).getLeft() == null) {
-                        hloPlans.get(hloPlans.size() - 1).setLeft(record.getTimestamp());
-                    }
-                }
-            }
-        }
-        if (getScenario().equals("bridge")) {
-            return List.of(
-                    new Pair<>("floor", (int) firstInstructionTime.until(hloPlans.get(0).getLeft(), MILLIS)),
-                    new Pair<>("railing", (int) hloPlans.get(0).getLeft().until(hloPlans.get(1).getLeft(), MILLIS)),
-                    new Pair<>("railing", (int) hloPlans.get(1).getLeft().until(hloPlans.get(2).getLeft(), MILLIS))
-            );
-        } else if (getScenario().equals("house")) {
-            return List.of(
-                    new Pair<>("wall", (int) firstInstructionTime.until(hloPlans.get(0).getLeft(), MILLIS)),
-                    new Pair<>("wall", (int) hloPlans.get(0).getLeft().until(hloPlans.get(1).getLeft(), MILLIS)),
-                    new Pair<>("wall", (int) hloPlans.get(1).getLeft().until(hloPlans.get(2).getLeft(), MILLIS)),
-                    new Pair<>("wall", (int) hloPlans.get(2).getLeft().until(hloPlans.get(3).getLeft(), MILLIS)),
-                    new Pair<>("row", (int) hloPlans.get(3).getLeft().until(hloPlans.get(4).getLeft(), MILLIS)),
-                    new Pair<>("row", (int) hloPlans.get(4).getLeft().until(hloPlans.get(5).getLeft(), MILLIS)),
-                    new Pair<>("row", (int) hloPlans.get(5).getLeft().until(hloPlans.get(6).getLeft(), MILLIS)),
-                    new Pair<>("row", (int) hloPlans.get(6).getLeft().until(hloPlans.get(7).getLeft(), MILLIS))
-                    );
-        }
-        return List.of();
-    }
-
-    private void addBlocksFromChildren(Set<Block> world, JsonObject jsonObject) {
-        Gson gson = new Gson();
-        for (var childElement: jsonObject.get("children").getAsJsonArray()){
-            if (childElement.isJsonObject()) {
-                JsonObject child = (JsonObject)childElement;
-                if ( child.has("xPos")) {
-                    world.add(gson.fromJson(child, Block.class));
-                } else if (child.has("name")) {
-                    addBlocksFromChildren(world, child);
-                }
-            }
-        }
-    }
-
     public List<Pair<String, Integer>> getDurationPerHLO() {
         assert wasSuccessful();
         if (getArchitect() == null) {
@@ -673,19 +499,9 @@ public class GameInformation {
         // Add initial blocks
         for (GameLogsRecord record: result) {
             if (record.getMessageType().equals("BlockPlacedMessage")) {
-                JsonObject json = JsonParser.parseString(record.getMessage()).getAsJsonObject();
-                if (json.has("x") && json.has("y") && json.has("z")) {
-                    presentBlocks.add(new Block(json.get("x").getAsInt(), json.get("y").getAsInt(), json.get("z").getAsInt()));
-                } else {
-                    logger.error("Block log at {} is not complete: {}", record.getTimestamp(), json);
-                }
+                presentBlocks.add(getBlockFromRecord(record));
             } else if (record.getMessageType().equals("BlockDestroyedMessage")) {
-                JsonObject json = JsonParser.parseString(record.getMessage()).getAsJsonObject();
-                if (json.has("x") && json.has("y") && json.has("z")) {
-                    presentBlocks.remove(new Block(json.get("x").getAsInt(), json.get("y").getAsInt(), json.get("z").getAsInt()));
-                } else {
-                    logger.error("Block log at {} is not complete: {}", record.getTimestamp(), json);
-                }
+                presentBlocks.remove(getBlockFromRecord(record));
             } else if (record.getMessageType().equals("TextMessage")) {
                 if (firstInstructionTime == null) {
                     if (record.getMessage().contains("Great!")) {
@@ -801,7 +617,7 @@ public class GameInformation {
             int z = Integer.parseInt(blockInfo[2]);
             // TODO: is the block type important? Not all of the initial blocks are unique blocks
             String typeName = blockInfo[3];
-            worldBlocks.add(new Block(x,y,z));
+            worldBlocks.add(new Block(x, y, z));
         }
         return  worldBlocks;
     }
@@ -812,35 +628,35 @@ public class GameInformation {
     public void writeAnalysis(File file) throws IOException {
         FileWriter writer = new FileWriter(file);
         boolean wasSuccessful = wasSuccessful();
-        String overview = "# Overview" +
-                "\n - Connection from: " +
-                getClientIp() +
-                "\n - Player name: " +
-                getPlayerName() +
-                "\n - Scenario: " +
-                getScenario() +
-                "\n - Architect: " +
-                getArchitect() +
-                "\n - Successful: " +
-                wasSuccessful +
-                "\n\n## Times\n" +
-                "\n - Start Time: " +
-                getStartTime() +
-                "\n - Success Time: " +
-                (wasSuccessful ? getSuccessTime() : "not applicable") +
-                "\n - End Time: " +
-                getEndTime() +
-                "\n - Experiment Duration: " +
-                (wasSuccessful ? getTimeToSuccess() + " seconds" : "not applicable") +
-                "\n - Total time logged in: " +
-                getTotalTime() +
-                " seconds\n\n## Blocks\n" +
-                "\n - Number of blocks placed: " +
-                getNumBlocksPlaced() +
-                "\n - Number of blocks destroyed: " +
-                getNumBlocksDestroyed() +
-                "\n - Number of mistakes: " +
-                getNumMistakes();
+        String overview = "# Overview"
+                + "\n - Connection from: "
+                + getClientIp()
+                + "\n - Player name: "
+                + getPlayerName()
+                + "\n - Scenario: "
+                + getScenario()
+                + "\n - Architect: "
+                + getArchitect()
+                + "\n - Successful: "
+                + wasSuccessful
+                + "\n\n## Times\n"
+                + "\n - Start Time: "
+                + getStartTime()
+                + "\n - Success Time: "
+                + (wasSuccessful ? getSuccessTime() : "not applicable")
+                + "\n - End Time: "
+                + getEndTime()
+                + "\n - Experiment Duration: "
+                + (wasSuccessful ? getTimeToSuccess() + " seconds" : "not applicable")
+                + "\n - Total time logged in: "
+                + getTotalTime()
+                + " seconds\n\n## Blocks\n"
+                + "\n - Number of blocks placed: "
+                + getNumBlocksPlaced()
+                + "\n - Number of blocks destroyed: "
+                + getNumBlocksDestroyed()
+                + "\n - Number of mistakes: "
+                + getNumMistakes();
         writer.write(overview);
         writer.flush();
 
@@ -851,18 +667,9 @@ public class GameInformation {
         }
 
         if (wasSuccessful) {
-
             List<Pair<String, Integer>> HLODurations = getDurationPerHLO();
             durations.append("\n\n# Durations per High-level object");
             for (var pair : HLODurations) {
-                durations.append("\n - ").append(pair.getFirst());
-                durations.append(" : ").append(pair.getSecond());
-                durations.append("ms");
-            }
-
-            List<Pair<String, Integer>> HLODurations2 = getDurationPerHLOCurrentWorldBased();
-            durations.append("\n\n# Durations per High-level object (current world based)");
-            for (var pair : HLODurations2) {
                 durations.append("\n - ").append(pair.getFirst());
                 durations.append(" : ").append(pair.getSecond());
                 durations.append("ms");
@@ -883,12 +690,18 @@ public class GameInformation {
                 durations.append(" : ").append(pair.getSecond());
                 durations.append("ms");
             }
-
             writer.write(durations.toString());
         }
         writer.close();
     }
 
+    /**
+     * Prints three lists to the console.
+     * - all blocks that were placed in this game until the given timestamp
+     * - all blocks that were destroyed in this game until the given timestamp
+     * - all blocks that were placed but not destroyed again until the given timestamp
+     *
+     */
     public void printBlocksUntilTimestamp(LocalDateTime time) {
         Result<GameLogsRecord> result = jooq.selectFrom(GAME_LOGS)
                 .where(GAME_LOGS.GAMEID.equal(gameId))
@@ -903,8 +716,7 @@ public class GameInformation {
         List<Block> presentBlocks = new ArrayList<>();
 
         for (GameLogsRecord record: result) {
-            JsonObject json = JsonParser.parseString(record.getMessage()).getAsJsonObject();
-            Block curBlock = new Block(json.get("x").getAsInt(), json.get("y").getAsInt(), json.get("z").getAsInt());
+            Block curBlock = getBlockFromRecord(record);
             if (record.getMessageType().equals("BlockPlacedMessage")) {
                 placedBlocks.add(curBlock);
                 presentBlocks.add(curBlock);
