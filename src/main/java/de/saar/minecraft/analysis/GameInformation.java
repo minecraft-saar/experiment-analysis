@@ -12,7 +12,6 @@ import de.saar.coli.minecraft.relationextractor.Block;
 import de.saar.minecraft.broker.db.GameLogsDirection;
 import de.saar.minecraft.broker.db.Tables;
 import de.saar.minecraft.broker.db.tables.records.GameLogsRecord;
-
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileWriter;
@@ -27,7 +26,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
-
 import org.apache.commons.lang3.NotImplementedException;
 import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.commons.lang3.tuple.MutablePair;
@@ -42,6 +40,7 @@ import org.jooq.Result;
 public class GameInformation {
     int gameId;
     DSLContext jooq;
+    boolean countDestroyedAsMistake;
     /** The ID of the log message showing that the user was successful.*/
     final long successMessageID;
 
@@ -50,6 +49,7 @@ public class GameInformation {
     public GameInformation(int gameId, DSLContext jooq) {
         this.gameId = gameId;
         this.jooq = jooq;
+        this.countDestroyedAsMistake = true;
         Long mid = jooq.select(GAME_LOGS.ID)
             .from(GAME_LOGS)
             .where(GAME_LOGS.GAMEID.eq(gameId))
@@ -70,7 +70,7 @@ public class GameInformation {
                 .sorted(Comparator.comparing(Pair::getFirst))
                 .collect(Collectors.toList())) {
             // TODO: escape commas in questions
-            sb.append("# Question" + qnum + ": ")
+            sb.append("# Question").append(qnum).append(": ")
                     .append(qa.getFirst())
                     .append("\n");
             qnum += 1;
@@ -211,6 +211,15 @@ public class GameInformation {
      * @return number of times the architect messages about a incorrectly placed block
      */
     public int getNumMistakes() {
+        if (countDestroyedAsMistake) {
+            return jooq.selectCount()
+                    .from(GAME_LOGS)
+                    .where(GAME_LOGS.GAMEID.eq(gameId))
+                    .and(GAME_LOGS.ID.lessOrEqual(successMessageID))
+                    .and(GAME_LOGS.MESSAGE.contains("Not there! please remove that block again")
+                        .or(GAME_LOGS.MESSAGE.contains("Please add this block again.")))
+                    .fetchOne(0, int.class);
+        }
         return jooq.selectCount()
             .from(GAME_LOGS)
             .where(GAME_LOGS.GAMEID.eq(gameId))
@@ -340,98 +349,80 @@ public class GameInformation {
         return durations;
     }
 
-    /**
-     * Returns the instructions given to the user and the time in ms it took the user to complete
-     * this instruction, e.g. [("wall", 8000), ("wall", 5000), ...] or [("block", 300), ... ("wall", 4000)]
-     * (This is low prio for now, the other two are more important)
-     *
-     * Measures instruction duration until the next instruction is given.
-     * Differences to duration until completion:
-     * - typically 1s delay until the Architect reacts
-     * - possibly a longer delay if there is a problem with the broker-architect connection
-     * - if the instruction is interrupted by the request to add a block again, it is split into
-     *   two instructions
-     */
-    public List<Pair<String, Integer>> getDurationPerInstruction() {
-        List<Pair<String, Integer>> durations = new ArrayList<>();
-        Result<GameLogsRecord> result = jooq.selectFrom(GAME_LOGS)
-                .where(GAME_LOGS.GAMEID.equal(gameId))
-                .orderBy(GAME_LOGS.ID.asc())
-                .fetch();
-        String oldInstruction = null;
-        LocalDateTime oldTimestamp = null;
-        boolean ignoreNext = false;  // The next instruction is a repeated instruction
-        for (GameLogsRecord record: result) {
-            if (record.getDirection().equals(GameLogsDirection.PassToClient)
-                    && record.getMessageType().equals("TextMessage")) {
-                JsonObject jsonObject = JsonParser.parseString(record.getMessage()).getAsJsonObject();
-                if (! jsonObject.has("text")) {
-                    continue;
-                }
-                String newInstruction = jsonObject.get("text").getAsString();
-                if (newInstruction.contains("Great! now")
-                        || newInstruction.contains("Congratulations")) {
-                    if (ignoreNext) {
-                        ignoreNext = false;
-                        continue;
-                    }
-                    if (oldInstruction == null) {
-                        oldInstruction = newInstruction;
-                        oldTimestamp = record.getTimestamp();
-                        continue;
-                    }
-                    int duration = (int) oldTimestamp.until(record.getTimestamp(), MILLIS);
-                    durations.add(new Pair<>(oldInstruction, duration));
-                    oldInstruction = newInstruction;
-                    oldTimestamp = record.getTimestamp();
-                } else if (newInstruction.contains("Please add this block again")) {
-                    ignoreNext = true;
-                }
-            }
-        }
-        return durations;
-    }
-
     static class Instruction {
 
         public LocalDateTime startTime;
         public String text;
         public Set<Block> blocks;
+        public Integer duration;
+        public int numWronglyAdded;
+        public int numWronglyDestroyed;
 
         public Instruction(LocalDateTime startTime, String text, Set<Block> blocks) {
             this.startTime = startTime;
             this.text = text;
             this.blocks = blocks;
+            this.numWronglyAdded = 0;
+            this.numWronglyDestroyed = 0;
         }
+
+        public void setDuration(int duration) {
+            this.duration = duration;
+        }
+
+        public void setDuration(LocalDateTime endTime) {
+            duration = (int) startTime.until(endTime, MILLIS);
+        }
+
+        public void addWronglyAdded() {
+            numWronglyAdded++;
+        }
+
+        public void addWronglyDestroyed() {
+            numWronglyDestroyed++;
+        }
+
+        public boolean isFinished() {
+            return duration != null;
+        }
+
+        public int getNumMistakes(boolean withDestroyed) {
+            if (withDestroyed) {
+                return numWronglyAdded + numWronglyDestroyed;
+            } else {
+                return numWronglyAdded;
+            }
+        }
+
     }
 
     /**
-     * Architect-dependent re-implementations of getDurationPerInstruction.
+     * Computes instruction durations and number of mistakes.
      *
      * Instruction durations begin with the text message that tells the player the instruction
      * and end if all blocks from this instruction are placed (and not removed before the
      * instruction was completed)
      */
-    public List<Pair<String, Integer>> getDurationPerInstruction_new() {
+    public List<Instruction> getInstructionDetails() {
         switch (getArchitect()) {
-            case "SimpleArchitect-BLOCK": return getDurationPerInstructionBlock();
-            case "SimpleArchitect-MEDIUM": return getDurationPerInstructionMedium();
-            case "SimpleArchitect-HIGHLEVEL": return getDurationPerInstructionHighlevel();
+            case "SimpleArchitect-BLOCK": return getInstructionDetailsBlock();
+            case "SimpleArchitect-MEDIUM": return getInstructionDetailsMedium();
+            case "SimpleArchitect-HIGHLEVEL": return getInstructionDetailsHighlevel();
             default: return List.of();
         }
     }
 
     /**
-     * Implementation of getDurationPerInstruction for SimpleArchitect-HIGHLEVEL
+     * Implementation of getInstructionDetails for SimpleArchitect-HIGHLEVEL
      * TODO: wrong duration if the block in question was set before the instruction. (Then the
      * next set block after the instruction is counted. --> Check for completeness for every
      * record not just BlockPlacedMessages?
      */
-    private List<Pair<String, Integer>> getDurationPerInstructionHighlevel() {
+    private List<Instruction> getInstructionDetailsHighlevel() {
         if (getArchitect() == null || !getArchitect().equals("SimpleArchitect-HIGHLEVEL")) {
             throw new RuntimeException("Wrong architect type " + getArchitect());
         }
-        List<Pair<String, Integer>> durations = new ArrayList<>();
+        List<Instruction> durations = new ArrayList<>();
         Result<GameLogsRecord> result = jooq.selectFrom(GAME_LOGS)
                 .where(GAME_LOGS.GAMEID.equal(gameId))
                 .orderBy(GAME_LOGS.ID.asc())
@@ -450,8 +441,7 @@ public class GameInformation {
                     continue;
                 }
                 String newInstruction = jsonObject.get("text").getAsString();
-                if (newInstruction.contains("Great! now")
-                        || newInstruction.contains("Congratulations")) {
+                if (newInstruction.contains("Great! now")) {
                     if (blocksCurrentObjectLeft == null) {
                         logger.error("blocksCurrentObjectLeft is null at instruction "
                                 + newInstruction);
@@ -461,6 +451,15 @@ public class GameInformation {
                             blocksCurrentObjectLeft);
                     openInstructions.add(current);
                     blocksCurrentObjectLeft = null;
+                } else if (newInstruction.contains("Please add this block again")) {
+                    // Add a mistake to all openInstructions?
+                    for (Instruction instruction: openInstructions) {
+                        instruction.addWronglyDestroyed();
+                    }
+                } else if (newInstruction.contains("Not there! please remove that block again")) {
+                    for (Instruction instruction: openInstructions) {
+                        instruction.addWronglyAdded();
+                    }
                 }
             }
             // Get necessary blocks for next instruction
@@ -491,10 +490,9 @@ public class GameInformation {
                 presentBlocks.add(getBlockFromRecord(record));
                 // Check all open instructions for completeness and compute durations for completed
                 for (Instruction instruction: openInstructions) {
-                    logger.info("instruction blocks {}", instruction.blocks);
                     if (presentBlocks.containsAll(instruction.blocks)) {
-                        long duration = instruction.startTime.until(record.getTimestamp(), MILLIS);
-                        durations.add(new Pair<>(instruction.text, (int) duration));
+                        instruction.setDuration(record.getTimestamp());
+                        durations.add(instruction);
                     }
                 }
                 // Remove completed instructions
@@ -506,17 +504,23 @@ public class GameInformation {
                 presentBlocks.remove(getBlockFromRecord(record));
             }
         }
+        for (Instruction instruction: openInstructions) {
+            logger.warn("Still open instruction");
+            logger.warn(instruction.text);
+            logger.warn(instruction.startTime);
+            logger.warn(instruction.blocks);
+        }
         return durations;
     }
 
     /**
-     * Implementation of getDurationPerInstruction for SimpleArchitect-MEDIUM
+     * Implementation of getInstructionDetails for SimpleArchitect-MEDIUM
      */
-    private List<Pair<String, Integer>> getDurationPerInstructionMedium() {
+    private List<Instruction> getInstructionDetailsMedium() {
         if (getArchitect() == null || !getArchitect().equals("SimpleArchitect-MEDIUM")) {
             throw new RuntimeException("Wrong architect type " + getArchitect());
         }
-        List<Pair<String, Integer>> durations = new ArrayList<>();
+        List<Instruction> durations = new ArrayList<>();
         Result<GameLogsRecord> result = jooq.selectFrom(GAME_LOGS)
                 .where(GAME_LOGS.GAMEID.equal(gameId))
                 .orderBy(GAME_LOGS.ID.asc())
@@ -568,17 +572,24 @@ public class GameInformation {
                     }
                 } else if (newInstruction.contains("Congratulations")) {
                     // End remaining open instructions
-                    // Ideally, the architect should only congratulate if
+                    // Ideally, the architect should only congratulate if all instructions were
+                    // completed.
                     if (! openInstructions.isEmpty()) {
                         logger.info("present blocks {}", presentBlocks);
                         logger.error("Still open instructions after completion.");
                         for (Instruction instruction: openInstructions) {
                             logger.info(instruction.text);
                             logger.info(instruction.blocks);
-                            durations.add(new Pair<>(instruction.text,
-                                    (int) instruction.startTime.until(record.getTimestamp(),
-                                            MILLIS)));
+                            durations.add(instruction);
                         }
+                    }
+                } else if (newInstruction.contains("Please add this block again")) {
+                    for (Instruction instruction: openInstructions) {
+                        instruction.addWronglyDestroyed();
+                    }
+                } else if (newInstruction.contains("Not there! please remove that block again")) {
+                    for (Instruction instruction : openInstructions) {
+                        instruction.addWronglyAdded();
                     }
                 }
             } else if (record.getMessageType().equals("CurrentObject")) {
@@ -610,8 +621,8 @@ public class GameInformation {
                 // Check all open instructions for completeness and compute durations for completed
                 for (Instruction instruction: openInstructions) {
                     if (presentBlocks.containsAll(instruction.blocks)) {
-                        long duration = instruction.startTime.until(record.getTimestamp(), MILLIS);
-                        durations.add(new Pair<>(instruction.text, (int) duration));
+                        instruction.setDuration(record.getTimestamp());
+                        durations.add(instruction);
                     }
                 }
                 // Remove completed instructions
@@ -620,40 +631,50 @@ public class GameInformation {
                 presentBlocks.remove(getBlockFromRecord(record));
             }
         }
+
+        for (Instruction instruction: openInstructions) {
+            logger.warn("Still open instruction");
+            logger.warn(instruction.text);
+            logger.warn(instruction.startTime);
+            logger.warn(instruction.blocks);
+        }
         return durations;
     }
 
     /**
-     * Implementation of getDurationPerInstruction for SimpleArchitect-BLOCK
+     * Implementation of getInstructionDetails for SimpleArchitect-BLOCK.
+     *
+     * Assumption: "Please add this block again" is not an instruction
      */
-    private List<Pair<String, Integer>> getDurationPerInstructionBlock() {
+    private List<Instruction> getInstructionDetailsBlock() {
         if (getArchitect() == null || !getArchitect().equals("SimpleArchitect-BLOCK")) {
             return List.of();
         }
-        List<Pair<String, Integer>> durations = new ArrayList<>();
+        List<Instruction> durations = new ArrayList<>();
         Result<GameLogsRecord> result = jooq.selectFrom(GAME_LOGS)
                 .where(GAME_LOGS.GAMEID.equal(gameId))
                 .orderBy(GAME_LOGS.ID.asc())
                 .fetch();
-        String oldInstruction = null;
-        LocalDateTime oldTimestamp = null;
         Block currentObjectLeft = null;
+        List<Instruction> currentInstructions = new ArrayList<>();
+        Set<Block> allInstructedBlocks = new HashSet<>();
 
         for (GameLogsRecord record: result) {
             if (record.getMessageType().equals("BlocksCurrentObjectLeft")) {
                 if (currentObjectLeft != null) {
-                    logger.error("Object changed too early");
-                }
-                if (record.getMessage().isEmpty()) {
+                    logger.info(currentObjectLeft);
+                    logger.error("Object changed too early {}", record.getTimestamp());
                     continue;
                 }
-
+                if (record.getMessage().isEmpty()) {
+                    logger.info("Empty BlockCurrentObjectLeft message {}", record.getTimestamp());
+                    continue;
+                }
                 JsonObject jsonObject = JsonParser.parseString(record.getMessage()).getAsJsonObject();
                 int x = jsonObject.get("xpos").getAsInt();
                 int y = jsonObject.get("ypos").getAsInt();
                 int z = jsonObject.get("zpos").getAsInt();
                 currentObjectLeft = new Block(x, y, z);
-                oldTimestamp = record.getTimestamp();
             } else if (record.getMessageType().equals("TextMessage")
                     && record.getDirection().equals(GameLogsDirection.PassToClient)) {
                 JsonObject jsonObject = JsonParser.parseString(record.getMessage()).getAsJsonObject();
@@ -661,30 +682,39 @@ public class GameInformation {
                     continue;
                 }
                 String newInstruction = jsonObject.get("text").getAsString();
-                if (newInstruction.contains("Great! now") || newInstruction.contains("Congratulations")) {
-                    if (oldInstruction == null) {
-                        oldInstruction = newInstruction;
-                        oldTimestamp = record.getTimestamp();
-                    } else {
-                        logger.error("Instruction changed too early");
-                    }
+                if (currentObjectLeft != null) {
+                    // Start new instruction
+                    currentInstructions.add(new Instruction(record.getTimestamp(),
+                            newInstruction, Set.of(currentObjectLeft)));
+                    allInstructedBlocks.add(currentObjectLeft);
+                    currentObjectLeft = null;
                 }
             } else if (record.getMessageType().equals("BlockPlacedMessage")) {
                 // Check instruction and object
                 Block newBlock = getBlockFromRecord(record);
-                if (currentObjectLeft == null) {
-                    // no block should be placed
-                    continue;
+                for (Instruction instruction: currentInstructions) {
+                    if (instruction.blocks.contains(newBlock)) {
+                        instruction.setDuration(record.getTimestamp());
+                        durations.add(instruction);
+                    } else {
+                        instruction.addWronglyAdded();
+                    }
                 }
-                if (currentObjectLeft.equals(newBlock)) {
-                    // correct block
-                    int duration = (int) oldTimestamp.until(record.getTimestamp(), MILLIS);
-                    durations.add(new Pair<>(oldInstruction, duration));
-                    oldInstruction = null;
-                    oldTimestamp = null;
-                    currentObjectLeft = null;
+                currentInstructions.removeIf(Instruction::isFinished);
+            } else if (record.getMessageType().equals("BlockDestroyedMessage")) {
+                // Block is part of this instruction or part of a completed earlier instruction
+                if (allInstructedBlocks.contains(getBlockFromRecord(record))) {
+                    for (Instruction instruction: currentInstructions) {
+                        instruction.addWronglyDestroyed();
+                    }
                 }
             }
+        }
+        for (Instruction instruction: currentInstructions) {
+            logger.warn("Still open instruction");
+            logger.warn(instruction.text);
+            logger.warn(instruction.startTime);
+            logger.warn(instruction.blocks);
         }
         return durations;
     }
@@ -702,17 +732,17 @@ public class GameInformation {
         if (json.has("x")) {
             x = json.get("x").getAsInt();
         } else {
-            logger.error("Missing x value for block at {}: {}", record.getTimestamp(), json);
+            logger.error("Missing x value for block at {}: {}", json, record.getTimestamp());
         }
         if (json.has("y")) {
             y = json.get("y").getAsInt();
         } else {
-            logger.error("Missing y value for block at {}: {}", record.getTimestamp(), json);
+            logger.error("Missing y value for block at {}: {}", json, record.getTimestamp());
         }
         if (json.has("z")) {
             z = json.get("z").getAsInt();
         } else {
-            logger.error("Missing z value for block at {}: {}", record.getTimestamp(), json);
+            logger.error("Missing z value for block at {}: {}", json, record.getTimestamp());
         }
         return new Block(x, y, z);
     }
@@ -724,7 +754,6 @@ public class GameInformation {
      * @param name: the name of the object, from the parent {"name": x}
      */
     private Set<Block> getBlocksFromObject(JsonObject object, String name) {
-        logger.info("object {}", object);
         if (name.equals("floor") || name.equals("wall") || name.equals("row")) {
             BigBlock bigBlock = getBigBlockFromJson(object);
             return bigBlock.getBlocks();
@@ -778,7 +807,9 @@ public class GameInformation {
      * HLO starts when the previous HLO is finished (or for the first with the welcome message).</p>
      */
     public List<Pair<String, Integer>> getDurationPerHLO() {
-        assert wasSuccessful();
+        if (! wasSuccessful()) {
+            return List.of();
+        }
         if (getArchitect() == null) {
             return List.of();
         }
@@ -802,39 +833,42 @@ public class GameInformation {
 
         LocalDateTime firstInstructionTime = null;
 
-        // Add initial blocks
         for (GameLogsRecord record: result) {
-            if (record.getMessageType().equals("BlockPlacedMessage")) {
-                presentBlocks.add(getBlockFromRecord(record));
-            } else if (record.getMessageType().equals("BlockDestroyedMessage")) {
-                presentBlocks.remove(getBlockFromRecord(record));
-            } else if (record.getMessageType().equals("TextMessage")) {
-                if (firstInstructionTime == null) {
-                    if (record.getMessage().contains("Great!")) {
-                        firstInstructionTime = record.getTimestamp();
-                    }
-                } else if (record.getMessage().contains("Congratulations, you are done building a")) {
-                    if (hloPlans.get(hloPlans.size() - 1).getLeft() == null) {
-                        hloPlans.get(hloPlans.size() - 1).setLeft(record.getTimestamp());
-                    }
-                }
-            }
-            for (MutablePair<LocalDateTime, List<Block>> hlo : hloPlans) {
-                if (hlo.getLeft() == null) {
-                    boolean allPresent = true;
-                    for (Block block : hlo.getRight()) {
-                        if (!presentBlocks.contains(block)) {
-                            allPresent = false;
-                            break;
+            switch (record.getMessageType()) {
+                case "BlockPlacedMessage":
+                    presentBlocks.add(getBlockFromRecord(record));
+                    break;
+                case "BlockDestroyedMessage":
+                    presentBlocks.remove(getBlockFromRecord(record));
+                    break;
+                case "TextMessage":
+                    if (firstInstructionTime == null) {
+                        if (record.getMessage().contains("Great!")) {
+                            firstInstructionTime = record.getTimestamp();
+                        }
+                    } else if (record.getMessage().contains("Congratulations, you are done building a")) {
+                        if (hloPlans.get(hloPlans.size() - 1).getLeft() == null) {
+                            hloPlans.get(hloPlans.size() - 1).setLeft(record.getTimestamp());
                         }
                     }
-                    if (allPresent) {
+                    break;
+                default:
+                    break;
+            }
+            // Check which HLOs are complete
+            for (MutablePair<LocalDateTime, List<Block>> hlo : hloPlans) {
+                if (hlo.getLeft() == null) {
+                    if (presentBlocks.containsAll(hlo.getRight())) {
                         hlo.setLeft(record.getTimestamp());
                     }
                 }
             }
         }
 
+        if (firstInstructionTime == null) {
+            logger.error("first instruction is null");
+            return List.of();
+        }
         if (getScenario().equals("bridge")) {
             return List.of(
                     new Pair<>("floor", (int) firstInstructionTime.until(hloPlans.get(0).getLeft(), MILLIS)),
@@ -981,20 +1015,18 @@ public class GameInformation {
                 durations.append("ms");
             }
 
-            List<Pair<String, Integer>> instructionDurations = getDurationPerInstruction();
-            durations.append("\n\n# Durations per Instruction (Old Implementation)");
-            for (var pair : instructionDurations) {
-                durations.append("\n - ").append(pair.getFirst());
-                durations.append(" : ").append(pair.getSecond());
-                durations.append("ms");
-            }
-
-            instructionDurations = getDurationPerInstruction_new();
-            durations.append("\n\n# Durations per Instruction (New Implementation) ");
-            for (var pair : instructionDurations) {
-                durations.append("\n - ").append(pair.getFirst());
-                durations.append(" : ").append(pair.getSecond());
-                durations.append("ms");
+            List<Instruction> details = getInstructionDetails();
+            durations.append("\n\n# Durations per Instruction");
+            for (var instruction : details) {
+                durations.append("\n - ").append(instruction.text);
+                durations.append(" : ").append(instruction.duration);
+                durations.append("ms, ");
+                durations.append(instruction.getNumMistakes(countDestroyedAsMistake));
+                durations.append(" mistakes (wrongly added: ");
+                durations.append(instruction.numWronglyAdded);
+                durations.append(", wrongly destroyed: ");
+                durations.append(instruction.numWronglyDestroyed);
+                durations.append(")");
             }
             writer.write(durations.toString());
         }

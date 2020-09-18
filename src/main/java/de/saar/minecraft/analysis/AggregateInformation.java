@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 import java.util.stream.Collectors;
 
 import org.apache.commons.math3.stat.descriptive.DescriptiveStatistics;
@@ -31,6 +32,11 @@ public class AggregateInformation {
      * @throws IOException if it cannot write to the provided file
      */
     public void saveCSV(File file) throws IOException {
+        if (games.isEmpty()) {
+            logger.error("No games for this filter. Please check in the database if there are "
+                    + "matching games.");
+            return;
+        }
         var sep = ",";
         FileWriter writer = new FileWriter(file);
         writer.write(games.get(0).getCSVHeader(sep));
@@ -103,12 +109,11 @@ public class AggregateInformation {
     }
 
     /**
-     *
-     * @return a hashmap with number of mistakes as keys and the number of player that made this
+     * @return a map with number of mistakes as keys and the number of player that made this
      * amount as values
      */
-    public HashMap<Integer, Integer> getMistakeDistribution() {
-        HashMap<Integer, Integer> distribution = new HashMap<>();
+    public Map<Integer, Integer> getMistakeDistribution() {
+        TreeMap<Integer, Integer> distribution = new TreeMap<>();
         for (GameInformation info: games) {
             int mistakes = info.getNumMistakes();
             distribution.put(mistakes, distribution.getOrDefault(mistakes, 0) + 1);
@@ -127,7 +132,6 @@ public class AggregateInformation {
         for (GameInformation info: games) {
             // collect
             for (Pair<String, Integer> qa: info.getNumericQuestions()) {
-                int currentAnswer;
                 // only include numeric answers
                 collection.putIfAbsent(qa.getFirst(), new DescriptiveStatistics());
                 collection.get(qa.getFirst()).addValue(qa.getSecond());
@@ -271,6 +275,15 @@ public class AggregateInformation {
             }
         }
         writer.write(hloDurations.toString());
+
+        StringBuilder mistakes = new StringBuilder("\n\n# Mistake distribution");
+        for (Map.Entry<Integer, Integer> entry: getMistakeDistribution().entrySet()) {
+            mistakes.append("\n");
+            mistakes.append(entry.getKey());
+            mistakes.append(": ");
+            mistakes.append(entry.getValue());
+        }
+        writer.write(mistakes.toString());
         writer.close();
     }
 
