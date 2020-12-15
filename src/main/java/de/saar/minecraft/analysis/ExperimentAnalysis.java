@@ -20,11 +20,11 @@ import org.jooq.impl.DSL;
 public class ExperimentAnalysis {
 
     private static final Logger logger = LogManager.getLogger(ExperimentAnalysis.class);
-    private AnalysisConfiguration config;
+    private final AnalysisConfiguration config;
     private DSLContext jooq;
-    private List<String> scenarios;
-    private List<String> architects;
-    private List<GameInformation> gameInformations;
+    private final List<String> scenarios;
+    private final List<String> architects;
+    private final List<GameInformation> gameInformations;
 
     public ExperimentAnalysis(AnalysisConfiguration config) {
         this.config = config;
@@ -200,6 +200,10 @@ public class ExperimentAnalysis {
                 .filter((x) -> ! x.getNumericQuestions().isEmpty())
                 .collect(Collectors.toList());
         var info = new AggregateInformation(gi);
+        if (info.games.isEmpty()) {
+            logger.warn("There are no complete games with questionnaire, not saving a CSV file!");
+            return;
+        }
         info.saveCSV(file);
     }
 }
