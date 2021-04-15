@@ -194,7 +194,7 @@ public class AggregateInformation {
                 String objectName = current.get(i).getFirst();
                 int newDuration = current.get(i).getSecond();
                 if (!addedDurations.get(i).getFirst().equals(objectName)) {
-                    logger.error("wrong high-level object");
+                    logger.error("wrong high-level object, is: " + addedDurations.get(i).getFirst() + " expected: " + objectName);
                     return null;
                 }
                 var durations = addedDurations.get(i).getSecond();

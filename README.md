@@ -1,5 +1,28 @@
 # experiment-analysis
 
+This program analyzes experiment data for our [minecraft-saar](https://minecraft-saar.github.io/)
+experiments.  As we need to extract information specific to the experiment setup,
+some parts need work to generalize (we e.g. currently hardcode information
+about what is being built).
+
+Before you can run an analysis, you have to import the game data from
+the experiment server onto your own mariadb server (unless you run
+this analysis directly on the experiment server, which I would not do
+as it can alter the data).
+
+You can dump the database like this (change user & db name as needed):
+
+`mysqldump --add-drop-table EXPERIMENTDATABASE > EXPERIMENTDATABASE.sql`
+
+and then import it locally:
+
+`mariadb -user minecraft < EXPERIMENTDATABASE.sql`
+
+
+You need to configure the program using a yaml file, an example is
+`example-config.yml`. Configure your database connection and output
+directory there.
+
 Configure database connection and output directory in `config.yml`.
 There is an example configuration in `example-config.yml`.
 
