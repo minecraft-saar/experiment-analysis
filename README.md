@@ -19,6 +19,14 @@ and then import it locally:
 `mariadb -user minecraft < EXPERIMENTDATABASE.sql`
 
 
+If you used an external questionnaire for your experiments (in
+contrast to the implementation in the Minecraft chat), you have to
+import the results using the questionnaire uploader.  This will also
+anonymize the data in your database (i.e. it will CHANGE your data):
+https://github.com/minecraft-saar/questionnaire-uploader
+For usage, read the README in that repository.
+
+
 You need to configure the program using a yaml file, an example is
 `example-config.yml`. Configure your database connection and output
 directory there.

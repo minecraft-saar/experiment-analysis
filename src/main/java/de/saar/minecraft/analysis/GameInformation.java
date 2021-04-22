@@ -444,6 +444,8 @@ public class GameInformation {
      * e.g. [("wall", 8000), ("wall", 5000), ...] or [("floor", 3000), ... ("railing", 4000)]
      * Regardless of whether it was instructed per block or as a HLO.
      *
+     * If the game was not successful, an empty list is returned.
+     *
      * <p>The method assumes that all HLOs were built in the correct order. The duration for each
      * HLO starts when the previous HLO is finished (or for the first with the welcome message).</p>
      */
