@@ -155,7 +155,7 @@ public class ExperimentAnalysis {
                                 }
                                 return x.getArchitect().equals(arch);
                             })
-                            .collect(Collectors.toList()));
+                            .collect(Collectors.toList()), true);
             String currentFileName = String.format("architect-details-%s.md", arch);
             File file = new File(String.valueOf(basePath), currentFileName);
             info.writeAnalysis(file);

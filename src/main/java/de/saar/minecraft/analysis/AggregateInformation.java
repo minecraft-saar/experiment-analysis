@@ -18,6 +18,13 @@ import org.apache.logging.log4j.Logger;
 public class AggregateInformation {
     List<GameInformation> games;
 
+    boolean skipHLOAnalysis = false;
+
+    public AggregateInformation(List<GameInformation> games, boolean skipHLOAnalysis) {
+        this.games = games;
+        this.skipHLOAnalysis = skipHLOAnalysis;
+    }
+
     public AggregateInformation(List<GameInformation> games) {
         this.games = games;
     }
@@ -178,7 +185,8 @@ public class AggregateInformation {
      * building them
      */
     public List<Pair<String, Integer>> getAverageDurationPerHLO() {
-        //
+        if (skipHLOAnalysis)
+            return null;
         List<Pair<String, List<Integer>>> addedDurations = new ArrayList<>();
         for (GameInformation info: games) {
             if (!info.wasSuccessful()) {
@@ -195,7 +203,7 @@ public class AggregateInformation {
                 int newDuration = current.get(i).getSecond();
                 if (!addedDurations.get(i).getFirst().equals(objectName)) {
                     logger.error("wrong high-level object, is: " + addedDurations.get(i).getFirst() + " expected: " + objectName);
-                    return null;
+                    throw new RuntimeException("HLO mismatch");
                 }
                 var durations = addedDurations.get(i).getSecond();
                 durations.add(newDuration);
