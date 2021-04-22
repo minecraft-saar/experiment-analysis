@@ -7,6 +7,7 @@ import static java.time.temporal.ChronoUnit.SECONDS;
 
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.google.common.collect.HashMultiset;
 import de.saar.coli.minecraft.relationextractor.Block;
 import de.saar.minecraft.broker.db.GameLogsDirection;
 import de.saar.minecraft.broker.db.Tables;
@@ -35,6 +36,18 @@ import org.jooq.Record1;
 import org.jooq.Result;
 
 
+/**
+ * This class extracts information from a single game, identified by the game ID.  Most
+ * methods should be self-explanatory, but there is one thing you might ask when inspecting the code:
+ * Why use multisets to keep track of what is being built in getDurationPerHLO??
+ *
+ * It was first implemented with sets, but then we found a game where destroy and place were in
+ * the wrong order: place, place, destroy (which is impossible for the same location).
+ * It seems like the second place and destroy happened at the same tick and were reported
+ * in the wrong order for some reason.  Using a multiset means we now have one block there
+ * (1+1-1=1) instead of zero (the second placement was ignored with a set as that block already
+ * existed in the world).  So this is a workaround for a very rare event ordering bug somewhere else.
+ */
 public class GameInformation {
     int gameId;
     DSLContext jooq;
@@ -462,20 +475,22 @@ public class GameInformation {
                 .fetch();
 
         List<MutablePair<LocalDateTime, List<Block>>> hloPlans;
-        Set<Block> presentBlocks;
+        HashMultiset<Block> presentBlocks = HashMultiset.create();
         String scenario = getScenario();
         if (scenario.equals("house")) {
             hloPlans = readHighlevelPlan("/de/saar/minecraft/domains/house-highlevel.plan");
-            presentBlocks = readInitialWorld("/de/saar/minecraft/worlds/house.csv");
+            presentBlocks.addAll(readInitialWorld("/de/saar/minecraft/worlds/house.csv"));
         } else if (scenario.equals("bridge")) {
             hloPlans = readBlockPlan("/de/saar/minecraft/domains/bridge-block.plan");
-            presentBlocks = readInitialWorld("/de/saar/minecraft/worlds/bridge.csv");
+            presentBlocks.addAll(readInitialWorld("/de/saar/minecraft/worlds/bridge.csv"));
         } else {
             throw new NotImplementedException("Scenario {} is not implemented", scenario);
         }
 
         LocalDateTime firstInstructionTime = null;
 
+        // go through the complete game and keep track of when instructions where given,
+        // blocks placed an HLO completed.
         for (GameLogsRecord record: result) {
             switch (record.getMessageType()) {
                 case "BlockPlacedMessage": 
@@ -486,13 +501,14 @@ public class GameInformation {
                     break;
                 case "TextMessage":
                     if (firstInstructionTime == null) {
-                        // the first instruction has a derivation tree
+                        // the first *instruction* has a derivation tree, otherwise it is
+                        // a welcome message or similar.
                         if (record.getMessage().contains("\\\"tree\\\":")) {
                             firstInstructionTime = record.getTimestamp();
                         }
                     }
                     break;
-                case "SuccessfullyFinished":
+                case "SuccessfullyFinished": // the game is complete, i.e. the last HLO was completed.
                     if (hloPlans.get(hloPlans.size() - 1).getLeft() == null) {
                         hloPlans.get(hloPlans.size() - 1).setLeft(record.getTimestamp());
                     }
@@ -509,6 +525,9 @@ public class GameInformation {
                 }
             }
         }
+
+	// As this was a successful game, all HLOs should have a time
+        assert (hloPlans.stream().noneMatch((x) -> x.getLeft() == null));
 
         if (firstInstructionTime == null) {
             logger.error("first instruction is null");
