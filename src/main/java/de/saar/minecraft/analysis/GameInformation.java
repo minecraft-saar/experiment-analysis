@@ -169,6 +169,29 @@ public class GameInformation {
             .where(GAMES.ID.eq(gameId))
             .fetchOne(GAMES.SCENARIO);
     }
+    
+    enum InstructionLevel {BLOCK, TEACHING, HIGHLEVEL};
+    
+    public InstructionLevel inferInstructionLevel() {
+        var countTeach = jooq.selectCount()
+                .from(GAME_LOGS)
+                .where(GAME_LOGS.GAMEID.eq(this.gameId))
+                .and(GAME_LOGS.MESSAGE.contains("teach you"))
+                .fetchOne().component1();
+        if (countTeach > 0) {
+            return InstructionLevel.TEACHING;
+        }
+        var countHLO = jooq.selectCount()
+                .from(GAME_LOGS)
+                .where(GAME_LOGS.GAMEID.eq(this.gameId))
+                .and(GAME_LOGS.MESSAGE.contains("a wall")
+                        .or(GAME_LOGS.MESSAGE.contains("a floor")))
+                .fetchOne().component1();
+        if (countHLO > 0) {
+            return InstructionLevel.HIGHLEVEL;
+        }
+        return InstructionLevel.BLOCK;
+    }
 
     public String getArchitect() {
         return jooq.select(GAMES.ARCHITECT_INFO)
@@ -489,44 +512,62 @@ public class GameInformation {
 
         LocalDateTime firstInstructionTime = null;
 
-        // go through the complete game and keep track of when instructions where given,
-        // blocks placed an HLO completed.
-        for (GameLogsRecord record: result) {
-            switch (record.getMessageType()) {
-                case "BlockPlacedMessage": 
-                    presentBlocks.add(getBlockFromRecord(record));
-                    break;
-                case "BlockDestroyedMessage":
-                    presentBlocks.remove(getBlockFromRecord(record));
-                    break;
-                case "TextMessage":
-                    if (firstInstructionTime == null) {
-                        // the first *instruction* has a derivation tree, otherwise it is
-                        // a welcome message or similar.
-                        if (record.getMessage().contains("\\\"tree\\\":")) {
-                            firstInstructionTime = record.getTimestamp();
+        /* These two booleans implement a work-around for https://github.com/minecraft-saar/infrastructure/issues/19
+        Sometimes, a delete message and a create message are in the wrong order.  This workaround is for a specific
+        game where the player did a put-delete-put sequence for one location.  The result should be that there is a
+        block, but for some reason the sequence ended up as put-put-delete, meaning the world as we capture it here
+        does not have the block even though it was there during the game.  If that happens, we disable tracking
+        of deletions in that one game.
+        */
+        boolean dataExtracted = false;
+        boolean ignoreDestroyMessages = false;
+        while (! dataExtracted) {
+            // go through the complete game and keep track of when instructions where given,
+            // blocks placed an HLO completed.
+            for (GameLogsRecord record : result) {
+                switch (record.getMessageType()) {
+                    case "BlockPlacedMessage":
+                        presentBlocks.add(getBlockFromRecord(record));
+                        break;
+                    case "BlockDestroyedMessage":
+                        if (! ignoreDestroyMessages) {
+                            presentBlocks.remove(getBlockFromRecord(record));
                         }
-                    }
-                    break;
-                case "SuccessfullyFinished": // the game is complete, i.e. the last HLO was completed.
-                    if (hloPlans.get(hloPlans.size() - 1).getLeft() == null) {
-                        hloPlans.get(hloPlans.size() - 1).setLeft(record.getTimestamp());
-                    }
-                    break;
-                default:
-                    break;
-            }
-            // Check which HLOs are complete
-            for (MutablePair<LocalDateTime, List<Block>> hlo : hloPlans) {
-                if (hlo.getLeft() == null) {
-                    if (presentBlocks.containsAll(hlo.getRight())) {
-                        hlo.setLeft(record.getTimestamp());
+                        break;
+                    case "TextMessage":
+                        if (firstInstructionTime == null) {
+                            // the first *instruction* has a derivation tree, otherwise it is
+                            // a welcome message or similar.
+                            if (record.getMessage().contains("\\\"tree\\\":")) {
+                                firstInstructionTime = record.getTimestamp();
+                            }
+                        }
+                        break;
+                    case "SuccessfullyFinished": // the game is complete, i.e. the last HLO was completed.
+                        if (hloPlans.get(hloPlans.size() - 1).getLeft() == null) {
+                            hloPlans.get(hloPlans.size() - 1).setLeft(record.getTimestamp());
+                        }
+                        break;
+                    default:
+                        break;
+                }
+                // Check which HLOs are complete
+                for (MutablePair<LocalDateTime, List<Block>> hlo : hloPlans) {
+                    if (hlo.getLeft() == null) {
+                        if (presentBlocks.containsAll(hlo.getRight())) {
+                            hlo.setLeft(record.getTimestamp());
+                        }
                     }
                 }
             }
+            // we are done when we either already had our second try or the data looks good.
+            if (ignoreDestroyMessages || hloPlans.stream().noneMatch((x) -> x.getLeft() == null)) {
+                dataExtracted = true;
+            } else {
+                ignoreDestroyMessages = true;
+            }
         }
-
-	// As this was a successful game, all HLOs should have a time
+        // As this was a successful game, all HLOs should have a time
         assert (hloPlans.stream().noneMatch((x) -> x.getLeft() == null));
 
         if (firstInstructionTime == null) {

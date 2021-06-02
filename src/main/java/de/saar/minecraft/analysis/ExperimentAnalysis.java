@@ -68,6 +68,7 @@ public class ExperimentAnalysis {
         makeScenarioAnalysis();
         makeArchitectAnalysis();
         makeGameAnalyses();
+        makeInstructionLevelAnalysis();
         saveAsCSV();
 
         for (var scenario: scenarios) {
@@ -137,6 +138,33 @@ public class ExperimentAnalysis {
             String currentFileName = String.format("scenario-details-%s.md", scenario);
             File file = new File(String.valueOf(basePath), currentFileName);
             info.writeAnalysis(file);
+        }
+    }
+    
+    public void makeInstructionLevelAnalysis() throws IOException {
+        Path basePath = Paths.get(config.getDirName(), "per_InstructionLevel");
+        if (!basePath.toFile().isDirectory() && !basePath.toFile().mkdir()) {
+            throw new IOException("Could not create directory " + basePath.toString());
+        }
+        for (String scenario: scenarios) {
+            for (GameInformation.InstructionLevel il: GameInformation.InstructionLevel.values()) {
+                var info = new AggregateInformation(
+                        gameInformations
+                                .stream()
+                                .filter((x) -> {
+                                    if (x.getArchitect() == null) {
+                                        return false;
+                                    }
+                                    return x.getScenario().equals(scenario)
+                                            && x.wasSuccessful()
+                                            && x.inferInstructionLevel().equals(il)
+                                            ;
+                                })
+                                .collect(Collectors.toList()), false);
+                String currentFileName = String.format("il-details-%s-%s.md", scenario, il);
+                File file = new File(String.valueOf(basePath), currentFileName);
+                info.writeAnalysis(file);
+            }
         }
     }
 
