@@ -107,6 +107,11 @@ public class GameInformation {
             sb.append("HLO").append(i);
         }
 
+        for (int i = 0; i < 8; i++) {
+            sb.append(separator);
+            sb.append("HLOmistakes").append(i);
+        }
+
         for (int i = 0; i < getNumericQuestions().size(); i++) {
             sb.append(separator).append("Question").append(i);
         }
@@ -141,17 +146,25 @@ public class GameInformation {
                  .append(getNumMistakes());
 
         if (wasSuccessful()) {
-            var hloTimings = getDurationPerHLO();
+            var hloTimings = getHLOInformation();
             for (int i = 0; i < 8; i++) {
                 sb.append(separator);
                 if (i < hloTimings.size()) {
-                    sb.append(hloTimings.get(i).getSecond());
+                    sb.append(hloTimings.get(i).getSecond().duration);
+                } else {
+                    sb.append("NA");
+                }
+            }
+            for (int i = 0; i < 8; i++) {
+                sb.append(separator);
+                if (i < hloTimings.size()) {
+                    sb.append(hloTimings.get(i).getSecond().mistakes);
                 } else {
                     sb.append("NA");
                 }
             }
         } else {
-            sb.append((separator + "NA").repeat(8));
+            sb.append((separator + "NA").repeat(16));
         }
 
         getNumericQuestions().stream().sorted(Comparator.comparing(Pair::getFirst)).forEach(
@@ -474,6 +487,22 @@ public class GameInformation {
         return new Block(x, y, z);
     }
 
+    public static class HLOGatherer {
+        public List<Block> blocks;
+        public LocalDateTime timestamp;
+        public int mistakes;
+        public HLOGatherer(List<Block> blocks) {
+            this.blocks = blocks;
+        }
+    }
+    public static class HLOInformation {
+        public final int duration;
+        public final int mistakes;
+        public HLOInformation(int duration, int mistakes) {
+            this.duration = duration;
+            this.mistakes = mistakes;
+        }
+    }
     /**
      * Returns the time the user needed to build each HLO in the scenario, i.e. the walls
      * in the house scenario and the floor and railings in the bridge scenario.
@@ -485,7 +514,7 @@ public class GameInformation {
      * <p>The method assumes that all HLOs were built in the correct order. The duration for each
      * HLO starts when the previous HLO is finished (or for the first with the welcome message).</p>
      */
-    public List<Pair<String, Integer>> getDurationPerHLO() {
+    public List<Pair<String, HLOInformation>> getHLOInformation() {
         if (! wasSuccessful()) {
             return List.of();
         }
@@ -497,20 +526,26 @@ public class GameInformation {
                 .orderBy(GAME_LOGS.ID.asc())
                 .fetch();
 
-        List<MutablePair<LocalDateTime, List<Block>>> hloPlans;
+        List<HLOGatherer> hloPlans;
         HashMultiset<Block> presentBlocks = HashMultiset.create();
         String scenario = getScenario();
         if (scenario.equals("house")) {
-            hloPlans = readHighlevelPlan("/de/saar/minecraft/domains/house-highlevel.plan");
+            hloPlans = readHighlevelPlan("/de/saar/minecraft/domains/house-highlevel.plan")
+                    .stream()
+                    .map(HLOGatherer::new)
+                    .collect(Collectors.toList());
             presentBlocks.addAll(readInitialWorld("/de/saar/minecraft/worlds/house.csv"));
         } else if (scenario.equals("bridge")) {
-            hloPlans = readBlockPlan("/de/saar/minecraft/domains/bridge-block.plan");
+            hloPlans = readBlockPlan("/de/saar/minecraft/domains/bridge-block.plan").stream()
+                    .map(HLOGatherer::new)
+                    .collect(Collectors.toList());
             presentBlocks.addAll(readInitialWorld("/de/saar/minecraft/worlds/bridge.csv"));
         } else {
             throw new NotImplementedException("Scenario {} is not implemented", scenario);
         }
 
         LocalDateTime firstInstructionTime = null;
+        int numMistakes = 0;
 
         /* These two booleans implement a work-around for https://github.com/minecraft-saar/infrastructure/issues/19
         Sometimes, a delete message and a create message are in the wrong order.  This workaround is for a specific
@@ -542,33 +577,38 @@ public class GameInformation {
                                 firstInstructionTime = record.getTimestamp();
                             }
                         }
+                        if (record.getMessage().contains("Not there! please remove that block again")
+                        || record.getMessage().contains("Please add this block again."))
+                            numMistakes += 1;
                         break;
                     case "SuccessfullyFinished": // the game is complete, i.e. the last HLO was completed.
-                        if (hloPlans.get(hloPlans.size() - 1).getLeft() == null) {
-                            hloPlans.get(hloPlans.size() - 1).setLeft(record.getTimestamp());
+                        if (hloPlans.get(hloPlans.size() - 1).timestamp == null) {
+                            hloPlans.get(hloPlans.size() - 1).timestamp = record.getTimestamp();
+                            hloPlans.get(hloPlans.size() - 1).mistakes = numMistakes;
                         }
                         break;
                     default:
                         break;
                 }
                 // Check which HLOs are complete
-                for (MutablePair<LocalDateTime, List<Block>> hlo : hloPlans) {
-                    if (hlo.getLeft() == null) {
-                        if (presentBlocks.containsAll(hlo.getRight())) {
-                            hlo.setLeft(record.getTimestamp());
+                for (HLOGatherer hlo : hloPlans) {
+                    if (hlo.timestamp == null) {
+                        if (presentBlocks.containsAll(hlo.blocks)) {
+                            hlo.timestamp = record.getTimestamp();
+                            hlo.mistakes = numMistakes;
                         }
                     }
                 }
             }
             // we are done when we either already had our second try or the data looks good.
-            if (ignoreDestroyMessages || hloPlans.stream().noneMatch((x) -> x.getLeft() == null)) {
+            if (ignoreDestroyMessages || hloPlans.stream().noneMatch((x) -> x.timestamp == null)) {
                 dataExtracted = true;
             } else {
                 ignoreDestroyMessages = true;
             }
         }
         // As this was a successful game, all HLOs should have a time
-        assert (hloPlans.stream().noneMatch((x) -> x.getLeft() == null));
+        assert (hloPlans.stream().noneMatch((x) -> x.timestamp == null));
 
         if (firstInstructionTime == null) {
             logger.error("first instruction is null");
@@ -576,33 +616,80 @@ public class GameInformation {
         }
         if (getScenario().equals("bridge")) {
             return List.of(
-                    new Pair<>("floor", (int) firstInstructionTime.until(hloPlans.get(0).getLeft(), MILLIS)),
-                    new Pair<>("railing", (int) hloPlans.get(0).getLeft().until(hloPlans.get(1).getLeft(), MILLIS)),
-                    new Pair<>("railing", (int) hloPlans.get(1).getLeft().until(hloPlans.get(2).getLeft(), MILLIS))
+                    new Pair<>("floor",
+                            new HLOInformation(
+                                    (int)firstInstructionTime.until(hloPlans.get(0).timestamp, MILLIS),
+                                    hloPlans.get(0).mistakes
+                            )
+                    ),
+                    new Pair<>("railing",
+                            new HLOInformation(
+                                    (int) hloPlans.get(0).timestamp.until(hloPlans.get(1).timestamp, MILLIS),
+                                    hloPlans.get(1).mistakes - hloPlans.get(0).mistakes
+                            )
+                    ),
+                    new Pair<>("railing",
+                            new HLOInformation(
+                                    (int) hloPlans.get(1).timestamp.until(hloPlans.get(2).timestamp, MILLIS),
+                                    hloPlans.get(2).mistakes - hloPlans.get(1).mistakes
+                            )
+                    )
             );
         } else if (getScenario().equals("house")) {
             return List.of(
-                    new Pair<>("wall", (int) firstInstructionTime.until(hloPlans.get(0).getLeft(), MILLIS)),
-                    new Pair<>("wall", (int) hloPlans.get(0).getLeft().until(hloPlans.get(1).getLeft(), MILLIS)),
-                    new Pair<>("wall", (int) hloPlans.get(1).getLeft().until(hloPlans.get(2).getLeft(), MILLIS)),
-                    new Pair<>("wall", (int) hloPlans.get(2).getLeft().until(hloPlans.get(3).getLeft(), MILLIS)),
-                    new Pair<>("row", (int) hloPlans.get(3).getLeft().until(hloPlans.get(4).getLeft(), MILLIS)),
-                    new Pair<>("row", (int) hloPlans.get(4).getLeft().until(hloPlans.get(5).getLeft(), MILLIS)),
-                    new Pair<>("row", (int) hloPlans.get(5).getLeft().until(hloPlans.get(6).getLeft(), MILLIS)),
-                    new Pair<>("row", (int) hloPlans.get(6).getLeft().until(hloPlans.get(7).getLeft(), MILLIS))
+                    new Pair<>("wall",
+                            new HLOInformation((int) firstInstructionTime.until(hloPlans.get(0).timestamp, MILLIS),
+                                    hloPlans.get(0).mistakes
+                            )
+                    ),
+                    new Pair<>("wall",
+                            new HLOInformation((int) hloPlans.get(0).timestamp.until(hloPlans.get(1).timestamp, MILLIS),
+                                    hloPlans.get(1).mistakes - hloPlans.get(0).mistakes
+                            )
+                    ),
+                    new Pair<>("wall",
+                            new HLOInformation((int) hloPlans.get(1).timestamp.until(hloPlans.get(2).timestamp, MILLIS),
+                                    hloPlans.get(2).mistakes - hloPlans.get(1).mistakes
+                            )
+                    ),
+                    new Pair<>("wall",
+                            new HLOInformation((int) hloPlans.get(2).timestamp.until(hloPlans.get(3).timestamp, MILLIS),
+                                    hloPlans.get(3).mistakes - hloPlans.get(2).mistakes
+                            )
+                    ),
+                    new Pair<>("row",
+                            new HLOInformation((int) hloPlans.get(3).timestamp.until(hloPlans.get(4).timestamp, MILLIS),
+                                    hloPlans.get(4).mistakes - hloPlans.get(3).mistakes
+                            )
+                    ),
+                    new Pair<>("row",
+                            new HLOInformation((int) hloPlans.get(4).timestamp.until(hloPlans.get(5).timestamp, MILLIS),
+                                    hloPlans.get(5).mistakes - hloPlans.get(4).mistakes
+                            )
+                    ),
+                    new Pair<>("row",
+                            new HLOInformation((int) hloPlans.get(5).timestamp.until(hloPlans.get(6).timestamp, MILLIS),
+                                    hloPlans.get(6).mistakes - hloPlans.get(5).mistakes
+                            )
+                    ),
+                    new Pair<>("row",
+                            new HLOInformation((int) hloPlans.get(6).timestamp.until(hloPlans.get(7).timestamp, MILLIS),
+                                    hloPlans.get(7).mistakes - hloPlans.get(6).mistakes
+                            )
+                    )
             );
         }
         return List.of();
     }
 
-    private List<MutablePair<LocalDateTime, List<Block>>> readBlockPlan(String filename) {
+    private List<List<Block>> readBlockPlan(String filename) {
         InputStream inputStream = GameInformation.class.getResourceAsStream(filename);
         String blockPlan = new BufferedReader(new InputStreamReader(inputStream))
                 .lines()
                 .collect(Collectors.joining("\n"));
         String[] steps = blockPlan.split("\n");
         List<Block> currentBlocks = new ArrayList<>();
-        List<MutablePair<LocalDateTime, List<Block>>> hloPlans = new ArrayList<>();
+        List<List<Block>> hloPlans = new ArrayList<>();
         for (String step: steps) {
             if (step.contains("-starting")) {
                 currentBlocks = new ArrayList<>();
@@ -613,24 +700,24 @@ public class GameInformation {
                 int z = (int) Double.parseDouble(stepArray[4]);
                 currentBlocks.add(new Block(x, y, z));
             } else if (step.contains("-finished")) {
-                hloPlans.add(new MutablePair<>(null, currentBlocks));
+                hloPlans.add(currentBlocks);
             }
         }
         return hloPlans;
     }
 
-    private List<MutablePair<LocalDateTime, List<Block>>> readHighlevelPlan(String filename) {
+    private List<List<Block>> readHighlevelPlan(String filename) {
         InputStream inputStream = GameInformation.class.getResourceAsStream(filename);
         String blockPlan = new BufferedReader(new InputStreamReader(inputStream))
                 .lines()
                 .collect(Collectors.joining("\n"));
         String[] steps = blockPlan.split("\n");
         List<Block> currentBlocks = new ArrayList<>();
-        List<MutablePair<LocalDateTime, List<Block>>> hloPlans = new ArrayList<>();
+        List<List<Block>> hloPlans = new ArrayList<>();
         for (String step: steps) {
             if (step.contains("!build-")) {
                 if (!currentBlocks.isEmpty()) {
-                    hloPlans.add(new MutablePair<>(null, currentBlocks));
+                    hloPlans.add(currentBlocks);
                 }
                 currentBlocks = new ArrayList<>();
             } else if (step.contains("!place-block-hidden")) {
@@ -641,7 +728,7 @@ public class GameInformation {
                 currentBlocks.add(new Block(x, y, z));
             }
         }
-        hloPlans.add(new MutablePair<>(null, currentBlocks));
+        hloPlans.add( currentBlocks);
         return hloPlans;
     }
 
@@ -710,11 +797,11 @@ public class GameInformation {
         }
 
         if (wasSuccessful) {
-            List<Pair<String, Integer>> HLODurations = getDurationPerHLO();
+            List<Pair<String, HLOInformation>> HLODurations = getHLOInformation();
             durations.append("\n\n# Durations per High-level object");
             for (var pair : HLODurations) {
                 durations.append("\n - ").append(pair.getFirst());
-                durations.append(" : ").append(pair.getSecond());
+                durations.append(" : ").append(pair.getSecond().duration);
                 durations.append("ms");
             }
 

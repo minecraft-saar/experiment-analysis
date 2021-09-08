@@ -192,7 +192,7 @@ public class AggregateInformation {
             if (!info.wasSuccessful()) {
                 continue;
             }
-            var current = info.getDurationPerHLO();
+            var current = info.getHLOInformation();
             if (addedDurations.isEmpty()) {
                 addedDurations = current.stream()
                         .map((x -> new Pair<String, List<Integer>>(x.getFirst(), new ArrayList<>())))
@@ -200,7 +200,7 @@ public class AggregateInformation {
             }
             for (int i = 0; i < current.size(); i++) {
                 String objectName = current.get(i).getFirst();
-                int newDuration = current.get(i).getSecond();
+                int newDuration = current.get(i).getSecond().duration;
                 if (!addedDurations.get(i).getFirst().equals(objectName)) {
                     logger.error("wrong high-level object, is: " + addedDurations.get(i).getFirst() + " expected: " + objectName);
                     throw new RuntimeException("HLO mismatch");
