@@ -582,7 +582,7 @@ public class GameInformation {
                             numMistakes += 1;
                         break;
                     case "SuccessfullyFinished": // the game is complete, i.e. the last HLO was completed.
-                        if (hloPlans.get(hloPlans.size() - 1).timestamp == null) {
+                        if (hloPlans.get(hloPlans.size() - 1).timestamp == null || hloPlans.get(hloPlans.size() - 1).timestamp.isBefore(hloPlans.get(hloPlans.size() - 2).timestamp)) {
                             hloPlans.get(hloPlans.size() - 1).timestamp = record.getTimestamp();
                             hloPlans.get(hloPlans.size() - 1).mistakes = numMistakes;
                         }
