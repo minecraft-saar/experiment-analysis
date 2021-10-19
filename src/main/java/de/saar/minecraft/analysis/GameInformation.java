@@ -580,13 +580,20 @@ public class GameInformation {
                         if (record.getMessage().contains("Not there! please remove that block again")
                         || record.getMessage().contains("Please add this block again."))
                             numMistakes += 1;
-                        break;
-                    case "SuccessfullyFinished": // the game is complete, i.e. the last HLO was completed.
-                        if (hloPlans.get(hloPlans.size() - 1).timestamp == null || hloPlans.get(hloPlans.size() - 1).timestamp.isBefore(hloPlans.get(hloPlans.size() - 2).timestamp)) {
-                            hloPlans.get(hloPlans.size() - 1).timestamp = record.getTimestamp();
-                            hloPlans.get(hloPlans.size() - 1).mistakes = numMistakes;
+
+                        if (record.getMessage().contains("Congratulations, you are done building")) { // the game is complete, i.e. the last HLO was completed.
+                            System.out.println("Success Message");
+                            if (hloPlans.get(hloPlans.size() - 1).timestamp == null) {
+                                hloPlans.get(hloPlans.size() - 1).timestamp = record.getTimestamp();
+                                hloPlans.get(hloPlans.size() - 1).mistakes = numMistakes;
+                            } else if (hloPlans.get(hloPlans.size() - 2).timestamp == null) {
+                            } else if (hloPlans.get(hloPlans.size() - 2).timestamp.until(hloPlans.get(hloPlans.size() - 1).timestamp, MILLIS) < 0) {
+                                hloPlans.get(hloPlans.size() - 1).timestamp = record.getTimestamp();
+                                hloPlans.get(hloPlans.size() - 1).mistakes = numMistakes;
+                            }
                         }
-                        break;
+
+                    break;
                     default:
                         break;
                 }
@@ -607,6 +614,7 @@ public class GameInformation {
                 ignoreDestroyMessages = true;
             }
         }
+
         // As this was a successful game, all HLOs should have a time
         assert (hloPlans.stream().noneMatch((x) -> x.timestamp == null));
 
