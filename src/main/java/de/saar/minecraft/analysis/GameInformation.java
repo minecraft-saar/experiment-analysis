@@ -582,7 +582,6 @@ public class GameInformation {
                             numMistakes += 1;
 
                         if (record.getMessage().contains("Congratulations, you are done building")) { // the game is complete, i.e. the last HLO was completed.
-                            System.out.println("Success Message");
                             if (hloPlans.get(hloPlans.size() - 1).timestamp == null) {
                                 hloPlans.get(hloPlans.size() - 1).timestamp = record.getTimestamp();
                                 hloPlans.get(hloPlans.size() - 1).mistakes = numMistakes;
