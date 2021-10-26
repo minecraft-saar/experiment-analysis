@@ -1,5 +1,6 @@
 package de.saar.minecraft.analysis;
 
+import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileReader;
 import java.io.IOException;
@@ -76,6 +77,14 @@ class Main implements Callable<Integer> {
             logger.info("Full analysis finished.");
         }
         if(startID != null && endID != null){
+            String dirName = config.getDirName();
+            if (! new File(dirName).isDirectory()) {
+                boolean wasCreated = new File(dirName).mkdir();
+                if (!wasCreated) {
+                    logger.error("Output directory {} could not be created", dirName);
+                    System.exit(-1);
+                }
+            }
             for(int id = startID; id <= endID; id++){
                 logger.info("Starting analysis for game {}", id);
                 experimentAnalysis.makeGameAnalysis(id);
