@@ -35,6 +35,7 @@ public class AggregateInformation {
      * Saves all game informations in a csv file with the format
      * gameid, scenario, architect, wasSuccessful, timeToSuccess, numBlocksPlaced,
      * numBlocksDestroyed, numMistakes, HLO1, ... , HLO7, question 1, ..., question n
+     *
      * @param file a csv file
      * @throws IOException if it cannot write to the provided file
      */
@@ -47,7 +48,35 @@ public class AggregateInformation {
         var sep = ",";
         FileWriter writer = new FileWriter(file);
         writer.write(games.get(0).getCSVHeader(sep));
-        for (var g: games) {
+        for (var g : games) {
+            writer.write(g.getCSVLine(sep));
+        }
+        writer.close();
+    }
+
+    /**
+     * Saves all game informations in a csv file with the format
+     * gameid, scenario, architect, wasSuccessful, timeToSuccess, numBlocksPlaced,
+     * numBlocksDestroyed, numMistakes, HLO1, ... , HLO7, question 1, ..., question n
+     *
+     * @param file a csv file
+     * @throws IOException if it cannot write to the provided file
+     */
+    public void saveCSV(File file, int startID, int endID) throws IOException {
+        if (games.isEmpty()) {
+            logger.error("No games for this filter. Please check in the database if there are "
+                    + "matching games.");
+            return;
+        }
+        var sep = ",";
+        FileWriter writer = new FileWriter(file);
+        writer.write(games.get(0).getCSVHeader(sep));
+        for (int id = startID; id <= endID; id++) {
+            int finalId = id;
+            var g = games.stream().filter((x) -> finalId == x.gameId).findFirst().orElse(null);
+            if (g == null) {
+                continue;
+            }
             writer.write(g.getCSVLine(sep));
         }
         writer.close();
@@ -59,7 +88,7 @@ public class AggregateInformation {
 
     public float getAverageGameDuration() {
         List<Long> durations = new ArrayList<>();
-        for (GameInformation info: games) {
+        for (GameInformation info : games) {
             if (info.wasSuccessful()) {
                 durations.add(info.getTimeToSuccess());
             }
@@ -70,7 +99,7 @@ public class AggregateInformation {
 
     public float getFractionSuccessfulGames() {
         int numSuccessFull = 0;
-        for (GameInformation info: games) {
+        for (GameInformation info : games) {
             if (info.wasSuccessful()) {
                 numSuccessFull++;
             }
@@ -80,7 +109,7 @@ public class AggregateInformation {
 
     public float getAverageNumMistakes() {
         int totalMistakes = 0;
-        for (GameInformation info: games) {
+        for (GameInformation info : games) {
             totalMistakes += info.getNumMistakes();
         }
         return (float) totalMistakes / games.size();
@@ -88,7 +117,7 @@ public class AggregateInformation {
 
     public float getAverageNumBlocksPlaced() {
         int totalBlocks = 0;
-        for (GameInformation info: games) {
+        for (GameInformation info : games) {
             totalBlocks += info.getNumBlocksPlaced();
         }
         return (float) totalBlocks / games.size();
@@ -96,7 +125,7 @@ public class AggregateInformation {
 
     public float getAverageNumBlocksDestroyed() {
         int totalBlocks = 0;
-        for (GameInformation info: games) {
+        for (GameInformation info : games) {
             totalBlocks += info.getNumBlocksDestroyed();
         }
         return (float) totalBlocks / games.size();
@@ -107,7 +136,7 @@ public class AggregateInformation {
      */
     public float getFractionMistakes() {
         int withMistakes = 0;
-        for (GameInformation info: games) {
+        for (GameInformation info : games) {
             if (info.getNumMistakes() > 0) {
                 withMistakes++;
             }
@@ -121,7 +150,7 @@ public class AggregateInformation {
      */
     public Map<Integer, Integer> getMistakeDistribution() {
         TreeMap<Integer, Integer> distribution = new TreeMap<>();
-        for (GameInformation info: games) {
+        for (GameInformation info : games) {
             int mistakes = info.getNumMistakes();
             distribution.put(mistakes, distribution.getOrDefault(mistakes, 0) + 1);
         }
@@ -131,14 +160,15 @@ public class AggregateInformation {
     /**
      * Computes answer distributions for Likert questions.
      * For each question: question text, mean, standard deviation, median, minimum, maximum
+     *
      * @return a list with the values above for each question
      */
     public List<Answer> getAnswerDistribution() {
         HashMap<String, DescriptiveStatistics> collection = new HashMap<>();
 
-        for (GameInformation info: games) {
+        for (GameInformation info : games) {
             // collect
-            for (Pair<String, Integer> qa: info.getNumericQuestions()) {
+            for (Pair<String, Integer> qa : info.getNumericQuestions()) {
                 // only include numeric answers
                 collection.putIfAbsent(qa.getFirst(), new DescriptiveStatistics());
                 collection.get(qa.getFirst()).addValue(qa.getSecond());
@@ -147,7 +177,7 @@ public class AggregateInformation {
 
         // compute distribution
         List<Answer> distribution = new ArrayList<>();
-        for (String question: collection.keySet()) {
+        for (String question : collection.keySet()) {
 
             DescriptiveStatistics statistics = collection.get(question);
             double mean = statistics.getGeometricMean();
@@ -166,7 +196,7 @@ public class AggregateInformation {
      */
     public HashMap<String, List<String>> getAllFreeTextResponses() {
         HashMap<String, List<String>> collection = new HashMap<>();
-        for (GameInformation info: games) {
+        for (GameInformation info : games) {
             for (Pair<String, String> qa : info.getFreeformQuestions()) {
                 var question = qa.getFirst();
                 var answer = qa.getSecond();
@@ -181,6 +211,7 @@ public class AggregateInformation {
 
     /**
      * Works only if all games have the same scenario, otherwise it returns null.
+     *
      * @return A list of high-level object names and the average duration in milliseconds for
      * building them
      */
@@ -188,12 +219,12 @@ public class AggregateInformation {
         if (skipHLOAnalysis)
             return null;
         List<Pair<String, List<Integer>>> addedDurations = new ArrayList<>();
-        for (GameInformation info: games) {
+        for (GameInformation info : games) {
             if (!info.wasSuccessful()) {
                 continue;
             }
             List<Pair<String, GameInformation.HLOInformation>> current;
-            if(info.hloInformation == null){
+            if (info.hloInformation == null) {
                 current = info.getHLOInformation();
                 info.hloInformation = current;
             } else {
@@ -224,6 +255,7 @@ public class AggregateInformation {
 
     /**
      * Computes the aggregate analysis and saves it in a markdown file.
+     *
      * @param file a markdown file
      * @throws IOException if it cannot write to the provided file
      */
@@ -248,7 +280,7 @@ public class AggregateInformation {
         writer.write(overview);
 
         StringBuilder gameList = new StringBuilder("\n# Games in this category\n");
-        for (GameInformation gi: games) {
+        for (GameInformation gi : games) {
             gameList.append(gi.gameId).append(", ");
         }
         writer.write(gameList.toString());
@@ -257,7 +289,7 @@ public class AggregateInformation {
 
         likert.append("| Question | Mean | Standard Deviation | Median | Minimum | Maximum |\n");
         likert.append("| -------- | ----:| ------------------:| ------:| -------:| -------:|\n");
-        for (Answer answer: getAnswerDistribution()) {
+        for (Answer answer : getAnswerDistribution()) {
             likert.append(String.format("%s | %.2f | %.2f | %d | %d | %d |\n",
                     answer.getQuestion(),
                     answer.getMean(),
@@ -272,7 +304,7 @@ public class AggregateInformation {
             String question = entry.getKey();
             List<String> answers = entry.getValue();
             free.append("\n### ").append(question);
-            for (String answer: answers) {
+            for (String answer : answers) {
                 free.append("\n - ").append(answer);
             }
         }
@@ -291,7 +323,7 @@ public class AggregateInformation {
         writer.write(hloDurations.toString());
 
         StringBuilder mistakes = new StringBuilder("\n\n# Mistake distribution");
-        for (Map.Entry<Integer, Integer> entry: getMistakeDistribution().entrySet()) {
+        for (Map.Entry<Integer, Integer> entry : getMistakeDistribution().entrySet()) {
             mistakes.append("\n");
             mistakes.append(entry.getKey());
             mistakes.append(": ");
@@ -310,7 +342,7 @@ public class AggregateInformation {
         private int maximum;
 
         public Answer(String question, double mean, double stdDeviation, int median, int minimum,
-            int maximum) {
+                      int maximum) {
             this.question = question;
             this.mean = mean;
             this.stdDeviation = stdDeviation;
