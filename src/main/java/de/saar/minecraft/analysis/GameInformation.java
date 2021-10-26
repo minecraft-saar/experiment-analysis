@@ -12,6 +12,7 @@ import de.saar.coli.minecraft.relationextractor.Block;
 import de.saar.minecraft.broker.db.GameLogsDirection;
 import de.saar.minecraft.broker.db.Tables;
 import de.saar.minecraft.broker.db.tables.records.GameLogsRecord;
+
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileWriter;
@@ -19,12 +20,9 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Collectors;
+
 import org.apache.commons.lang3.NotImplementedException;
 import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.commons.lang3.tuple.MutablePair;
@@ -40,7 +38,7 @@ import org.jooq.Result;
  * This class extracts information from a single game, identified by the game ID.  Most
  * methods should be self-explanatory, but there is one thing you might ask when inspecting the code:
  * Why use multisets to keep track of what is being built in getDurationPerHLO??
- *
+ * <p>
  * It was first implemented with sets, but then we found a game where destroy and place were in
  * the wrong order: place, place, destroy (which is impossible for the same location).
  * It seems like the second place and destroy happened at the same tick and were reported
@@ -52,7 +50,10 @@ public class GameInformation {
     int gameId;
     DSLContext jooq;
     boolean countDestroyedAsMistake;
-    /** The ID of the log message showing that the user was successful.*/
+    List<Pair<String, HLOInformation>> hloInformation = null;
+    /**
+     * The ID of the log message showing that the user was successful.
+     */
     final long successMessageID;
 
     private static final Logger logger = LogManager.getLogger(GameInformation.class);
@@ -62,10 +63,10 @@ public class GameInformation {
         this.jooq = jooq;
         this.countDestroyedAsMistake = true;
         Long mid = jooq.select(GAME_LOGS.ID)
-            .from(GAME_LOGS)
-            .where(GAME_LOGS.GAMEID.eq(gameId))
-            .and(GAME_LOGS.MESSAGE.contains("\"newGameState\": \"SuccessfullyFinished\""))
-            .fetchOne(GAME_LOGS.ID);
+                .from(GAME_LOGS)
+                .where(GAME_LOGS.GAMEID.eq(gameId))
+                .and(GAME_LOGS.MESSAGE.contains("\"newGameState\": \"SuccessfullyFinished\""))
+                .fetchOne(GAME_LOGS.ID);
         if (mid == null) {
             successMessageID = Long.MAX_VALUE;
         } else {
@@ -73,10 +74,10 @@ public class GameInformation {
         }
     }
 
-    public  String getCSVHeader(String separator) {
+    public String getCSVHeader(String separator) {
         var sb = new StringBuilder();
         int qnum = 0;
-        for (var qa: getNumericQuestions()
+        for (var qa : getNumericQuestions()
                 .stream()
                 .sorted(Comparator.comparing(Pair::getFirst))
                 .collect(Collectors.toList())) {
@@ -87,20 +88,20 @@ public class GameInformation {
             qnum += 1;
         }
         sb.append("gameid")
-          .append(separator)
-          .append("scenario")
-          .append(separator)
-          .append("architect")
-          .append(separator)
-          .append("wasSuccessful")
-          .append(separator)
-          .append("timeToSuccess")
-          .append(separator)
-          .append("numBlocksPlaced")
-          .append(separator)
-          .append("numBlocksDestroyed")
-          .append(separator)
-          .append("numMistakes");
+                .append(separator)
+                .append("scenario")
+                .append(separator)
+                .append("architect")
+                .append(separator)
+                .append("wasSuccessful")
+                .append(separator)
+                .append("timeToSuccess")
+                .append(separator)
+                .append("numBlocksPlaced")
+                .append(separator)
+                .append("numBlocksDestroyed")
+                .append(separator)
+                .append("numMistakes");
 
         for (int i = 0; i < 8; i++) {
             sb.append(separator);
@@ -121,6 +122,7 @@ public class GameInformation {
     /**
      * Returns gameid Scenario Architect wassucessful timetosuccess numblocksplaced
      * numblocksdestroyed nummistakes answers
+     *
      * @param separator the separator of the fields
      */
     public String getCSVLine(String separator) {
@@ -139,14 +141,20 @@ public class GameInformation {
             sb.append("NA");
         }
         sb.append(separator)
-                 .append(getNumBlocksPlaced())
-                 .append(separator)
-                 .append(getNumBlocksDestroyed())
-                 .append(separator)
-                 .append(getNumMistakes());
+                .append(getNumBlocksPlaced())
+                .append(separator)
+                .append(getNumBlocksDestroyed())
+                .append(separator)
+                .append(getNumMistakes());
 
         if (wasSuccessful()) {
-            var hloTimings = getHLOInformation();
+            List<Pair<String, HLOInformation>> hloTimings;
+            if(this.hloInformation == null){
+                hloTimings = getHLOInformation();
+                this.hloInformation = hloTimings;
+            } else {
+                hloTimings = this.hloInformation;
+            }
             for (int i = 0; i < 8; i++) {
                 sb.append(separator);
                 if (i < hloTimings.size()) {
@@ -178,13 +186,15 @@ public class GameInformation {
 
     public String getScenario() {
         return jooq.select(GAMES.SCENARIO)
-            .from(GAMES)
-            .where(GAMES.ID.eq(gameId))
-            .fetchOne(GAMES.SCENARIO);
+                .from(GAMES)
+                .where(GAMES.ID.eq(gameId))
+                .fetchOne(GAMES.SCENARIO);
     }
-    
-    enum InstructionLevel {BLOCK, TEACHING, HIGHLEVEL};
-    
+
+    enum InstructionLevel {BLOCK, TEACHING, HIGHLEVEL}
+
+    ;
+
     public InstructionLevel inferInstructionLevel() {
         var countTeach = jooq.selectCount()
                 .from(GAME_LOGS)
@@ -208,9 +218,9 @@ public class GameInformation {
 
     public String getArchitect() {
         return jooq.select(GAMES.ARCHITECT_INFO)
-            .from(GAMES)
-            .where(GAMES.ID.eq(gameId))
-            .fetchOne(GAMES.ARCHITECT_INFO);
+                .from(GAMES)
+                .where(GAMES.ID.eq(gameId))
+                .fetchOne(GAMES.ARCHITECT_INFO);
     }
 
     public String getPlayerName() {
@@ -228,33 +238,30 @@ public class GameInformation {
     }
 
     /**
-     *
      * @return number of blocks placed before the experiment was successful
      */
     public int getNumBlocksPlaced() {
         return jooq.selectCount()
-            .from(GAME_LOGS)
-            .where(GAME_LOGS.GAMEID.eq(gameId))
-            .and(GAME_LOGS.ID.lessOrEqual(successMessageID))
-            .and(GAME_LOGS.MESSAGE_TYPE.eq("BlockPlacedMessage"))
-            .fetchOne(0, int.class);
+                .from(GAME_LOGS)
+                .where(GAME_LOGS.GAMEID.eq(gameId))
+                .and(GAME_LOGS.ID.lessOrEqual(successMessageID))
+                .and(GAME_LOGS.MESSAGE_TYPE.eq("BlockPlacedMessage"))
+                .fetchOne(0, int.class);
     }
 
     /**
-     *
      * @return number of blocks destroyed before the experiment was successful
      */
     public int getNumBlocksDestroyed() {
         return jooq.selectCount()
-            .from(GAME_LOGS)
-            .where(GAME_LOGS.GAMEID.eq(gameId))
-            .and(GAME_LOGS.ID.lessOrEqual(successMessageID))
-            .and(GAME_LOGS.MESSAGE_TYPE.eq("BlockDestroyedMessage"))
-            .fetchOne(0, int.class);
+                .from(GAME_LOGS)
+                .where(GAME_LOGS.GAMEID.eq(gameId))
+                .and(GAME_LOGS.ID.lessOrEqual(successMessageID))
+                .and(GAME_LOGS.MESSAGE_TYPE.eq("BlockDestroyedMessage"))
+                .fetchOne(0, int.class);
     }
 
     /**
-     *
      * @return number of times the architect messages about a incorrectly placed block
      */
     public int getNumMistakes() {
@@ -264,19 +271,39 @@ public class GameInformation {
                     .where(GAME_LOGS.GAMEID.eq(gameId))
                     .and(GAME_LOGS.ID.lessOrEqual(successMessageID))
                     .and(GAME_LOGS.MESSAGE.contains("Not there! please remove that block again")
-                        .or(GAME_LOGS.MESSAGE.contains("Please add this block again.")))
+                            .or(GAME_LOGS.MESSAGE.contains("Please add this block again.")))
                     .fetchOne(0, int.class);
         }
         return jooq.selectCount()
-            .from(GAME_LOGS)
-            .where(GAME_LOGS.GAMEID.eq(gameId))
-            .and(GAME_LOGS.ID.lessOrEqual(successMessageID))
-            .and(GAME_LOGS.MESSAGE.contains("Not there! please remove that block again"))
-            .fetchOne(0, int.class);
+                .from(GAME_LOGS)
+                .where(GAME_LOGS.GAMEID.eq(gameId))
+                .and(GAME_LOGS.ID.lessOrEqual(successMessageID))
+                .and(GAME_LOGS.MESSAGE.contains("Not there! please remove that block again"))
+                .fetchOne(0, int.class);
+    }
+
+    public int getNumMistakesInTimespan(LocalDateTime begin, LocalDateTime end) {
+
+        Result<Record1<LocalDateTime>> result = jooq.select(GAME_LOGS.TIMESTAMP)
+                .from(GAME_LOGS)
+                .where(GAME_LOGS.GAMEID.eq(gameId))
+                .and(GAME_LOGS.ID.lessOrEqual(successMessageID))
+                .and(GAME_LOGS.MESSAGE.contains("Not there! please remove that block again"))
+                .orderBy(GAME_LOGS.ID.asc())
+                .fetch();
+        int count = 0;
+        if (result.isNotEmpty()) {
+            for (int i = 0; i < result.size(); i++) {
+                LocalDateTime current = result.getValue(i, GAME_LOGS.TIMESTAMP);
+                if (current.isAfter(begin) && current.isBefore(end)) {
+                    count++;
+                }
+            }
+        }
+        return count;
     }
 
     /**
-     *
      * @return List of question-answer pairs where the answer is a number
      */
     public List<Pair<String, Integer>> getNumericQuestions() {
@@ -290,7 +317,6 @@ public class GameInformation {
     }
 
     /**
-     *
      * @return List of question-answer pairs where the answer is not a number
      */
     public List<Pair<String, String>> getFreeformQuestions() {
@@ -298,13 +324,12 @@ public class GameInformation {
                 .where(Tables.QUESTIONNAIRES.GAMEID.equal(gameId))
                 .orderBy(Tables.QUESTIONNAIRES.ID.asc())
                 .fetchStream()
-                .filter((row) -> ! NumberUtils.isDigits(row.getAnswer()))
+                .filter((row) -> !NumberUtils.isDigits(row.getAnswer()))
                 .map((row) -> new Pair<>(row.getQuestion(), row.getAnswer()))
                 .collect(Collectors.toList());
     }
 
     /**
-     *
      * @return True if the game was successfully finished, false if stopped early
      */
     public boolean wasSuccessful() {
@@ -312,7 +337,6 @@ public class GameInformation {
     }
 
     /**
-     *
      * @return the time between the experiment start and successfully completing the building
      */
     public long getTimeToSuccess() {
@@ -328,6 +352,7 @@ public class GameInformation {
     /**
      * Returns the duration until the user logged out.  Note: This may be much longer than
      * until task completion!
+     *
      * @return Seconds elapsed between login and logout
      */
     public long getTotalTime() {
@@ -337,40 +362,37 @@ public class GameInformation {
     }
 
     /**
-     *
      * @return the first Timestamp of the game
      */
     public LocalDateTime getStartTime() {
         return jooq.select(GAME_LOGS.TIMESTAMP)
-            .from(GAME_LOGS)
-            .where(GAME_LOGS.GAMEID.eq(gameId))
-            .orderBy(GAME_LOGS.ID.asc())
-            .fetchAny(GAME_LOGS.TIMESTAMP);
+                .from(GAME_LOGS)
+                .where(GAME_LOGS.GAMEID.eq(gameId))
+                .orderBy(GAME_LOGS.ID.asc())
+                .fetchAny(GAME_LOGS.TIMESTAMP);
     }
 
     /**
-     *
      * @return the Timestamp when the game state changed to SuccessfullyFinished
      */
     public LocalDateTime getSuccessTime() {
         assert wasSuccessful();
         return jooq.select(GAME_LOGS.TIMESTAMP)
-            .from(GAME_LOGS)
-            .where(GAME_LOGS.GAMEID.eq(gameId))
-            .and(GAME_LOGS.MESSAGE.contains("\"newGameState\": \"SuccessfullyFinished\""))
-            .fetchOne(GAME_LOGS.TIMESTAMP);
+                .from(GAME_LOGS)
+                .where(GAME_LOGS.GAMEID.eq(gameId))
+                .and(GAME_LOGS.MESSAGE.contains("\"newGameState\": \"SuccessfullyFinished\""))
+                .fetchOne(GAME_LOGS.TIMESTAMP);
     }
 
     /**
-     *
      * @return the last Timestamp of the game
      */
     public LocalDateTime getEndTime() {
         return jooq.select(GAME_LOGS.TIMESTAMP)
-            .from(GAME_LOGS)
-            .where(Tables.GAME_LOGS.GAMEID.equal(gameId))
-            .orderBy(Tables.GAME_LOGS.ID.desc())
-            .fetchAny(GAME_LOGS.TIMESTAMP);
+                .from(GAME_LOGS)
+                .where(Tables.GAME_LOGS.GAMEID.equal(gameId))
+                .orderBy(Tables.GAME_LOGS.ID.desc())
+                .fetchAny(GAME_LOGS.TIMESTAMP);
     }
 
     /**
@@ -402,7 +424,7 @@ public class GameInformation {
      * Each instruction is represented by the derivation tree of the IRTG,
      * the times are returned as milliseconds between giving the instruction and
      * the next instruction.
-     *
+     * <p>
      * Correction instructions (e.g. to remove a block again or put a block again that was removed)
      * are ignored; only instructions that have new=true in their metadata are handled.
      */
@@ -413,11 +435,11 @@ public class GameInformation {
                 .orderBy(GAME_LOGS.ID.asc());
         String oldInstruction = null;
         LocalDateTime oldTimestamp = null;
-        for (GameLogsRecord record: query) {
+        for (GameLogsRecord record : query) {
             if (record.getDirection().equals(GameLogsDirection.PassToClient)
                     && record.getMessageType().equals("TextMessage")) {
                 JsonObject messageJson = JsonParser.parseString(record.getMessage()).getAsJsonObject();
-                if (! messageJson.has("text")) {
+                if (!messageJson.has("text")) {
                     continue;
                 }
 
@@ -429,15 +451,15 @@ public class GameInformation {
                 }
 
                 String newInstruction = messageJson.get("text").getAsString();
-                
-                if (! newInstruction.startsWith("{")) {
+
+                if (!newInstruction.startsWith("{")) {
                     // ignore messages that have no structured information
                     // those are e.g. welcome messages etc.
                     continue;
                 }
 
                 JsonObject instructionJson = JsonParser.parseString(newInstruction).getAsJsonObject();
-                
+
                 // also contains the "message" field but we do not need that here
                 boolean isNew = instructionJson.get("new").getAsBoolean();
                 String tree = instructionJson.get("tree").getAsString();
@@ -461,6 +483,7 @@ public class GameInformation {
 
     /**
      * Reads a Block*Message and returns a Block with the same coordinates
+     *
      * @param record: a GamesLogsRecord for a BlockPlaced- or BlockDestroyedMessage
      */
     private Block getBlockFromRecord(GameLogsRecord record) {
@@ -491,31 +514,35 @@ public class GameInformation {
         public List<Block> blocks;
         public LocalDateTime timestamp;
         public int mistakes;
+
         public HLOGatherer(List<Block> blocks) {
             this.blocks = blocks;
         }
     }
+
     public static class HLOInformation {
         public final int duration;
         public final int mistakes;
+
         public HLOInformation(int duration, int mistakes) {
             this.duration = duration;
             this.mistakes = mistakes;
         }
     }
+
     /**
      * Returns the time the user needed to build each HLO in the scenario, i.e. the walls
      * in the house scenario and the floor and railings in the bridge scenario.
      * e.g. [("wall", 8000), ("wall", 5000), ...] or [("floor", 3000), ... ("railing", 4000)]
      * Regardless of whether it was instructed per block or as a HLO.
-     *
+     * <p>
      * If the game was not successful, an empty list is returned.
      *
      * <p>The method assumes that all HLOs were built in the correct order. The duration for each
      * HLO starts when the previous HLO is finished (or for the first with the welcome message).</p>
      */
     public List<Pair<String, HLOInformation>> getHLOInformation() {
-        if (! wasSuccessful()) {
+        if (!wasSuccessful()) {
             return List.of();
         }
         if (getArchitect() == null) {
@@ -523,11 +550,12 @@ public class GameInformation {
         }
         Result<GameLogsRecord> result = jooq.selectFrom(GAME_LOGS)
                 .where(GAME_LOGS.GAMEID.equal(gameId))
-                .orderBy(GAME_LOGS.ID.asc())
+                .orderBy(GAME_LOGS.TIMESTAMP.asc())
                 .fetch();
 
         List<HLOGatherer> hloPlans;
         HashMultiset<Block> presentBlocks = HashMultiset.create();
+        HashMap<Block, LocalDateTime> blocksTime = new HashMap<>();
         String scenario = getScenario();
         if (scenario.equals("house")) {
             hloPlans = readHighlevelPlan("/de/saar/minecraft/domains/house-highlevel.plan")
@@ -556,16 +584,24 @@ public class GameInformation {
         */
         boolean dataExtracted = false;
         boolean ignoreDestroyMessages = false;
-        while (! dataExtracted) {
+        LocalDateTime lastTimestamp = null;
+        int count = 1;
+        while (!dataExtracted) {
             // go through the complete game and keep track of when instructions where given,
             // blocks placed an HLO completed.
             for (GameLogsRecord record : result) {
                 switch (record.getMessageType()) {
                     case "BlockPlacedMessage":
-                        presentBlocks.add(getBlockFromRecord(record));
+                        Block block = getBlockFromRecord(record);
+                        presentBlocks.add(block);
+                        if (blocksTime.containsKey(block)) {
+                            blocksTime.replace(block, record.getTimestamp());
+                        } else {
+                            blocksTime.put(block, record.getTimestamp());
+                        }
                         break;
                     case "BlockDestroyedMessage":
-                        if (! ignoreDestroyMessages) {
+                        if (!ignoreDestroyMessages) {
                             presentBlocks.remove(getBlockFromRecord(record));
                         }
                         break;
@@ -578,7 +614,7 @@ public class GameInformation {
                             }
                         }
                         if (record.getMessage().contains("Not there! please remove that block again")
-                        || record.getMessage().contains("Please add this block again."))
+                                || record.getMessage().contains("Please add this block again."))
                             numMistakes += 1;
 
                         if (record.getMessage().contains("Congratulations, you are done building")) { // the game is complete, i.e. the last HLO was completed.
@@ -592,7 +628,7 @@ public class GameInformation {
                             }
                         }
 
-                    break;
+                        break;
                     default:
                         break;
                 }
@@ -606,10 +642,39 @@ public class GameInformation {
                     }
                 }
             }
+            count++;
             // we are done when we either already had our second try or the data looks good.
             if (ignoreDestroyMessages || hloPlans.stream().noneMatch((x) -> x.timestamp == null)) {
                 dataExtracted = true;
             } else {
+                //there was some problem in the game with regard to block placement/destruction timing
+                //so we extract the latest time at which a block in the hlo was placed since this must be the
+                //time our system assumed the construction was finished, regardless of the current state of the minecraft world
+                if(wasSuccessful()){
+                    for (HLOGatherer hlo : hloPlans) {
+                        if (hlo.timestamp == null) {
+                            LocalDateTime latestTimestamp = firstInstructionTime;
+                            for (Block b : hlo.blocks) {
+                                LocalDateTime tmp = blocksTime.get(b);
+                                if(tmp == null) {
+                                    continue;
+                                }
+                                if(latestTimestamp == null){
+                                    latestTimestamp = tmp;
+                                }
+                                else if (latestTimestamp.isBefore(tmp)) {
+                                    latestTimestamp = tmp;
+                                }
+                            }
+                            hlo.timestamp = latestTimestamp;
+                        }
+                    }
+                }
+                if (hloPlans.stream().noneMatch((x) -> x.timestamp == null)) {
+                    dataExtracted = true;
+                } else {
+                    System.out.println("Some HLO is still not finished gameId: " + gameId);
+                }
                 ignoreDestroyMessages = true;
             }
         }
@@ -625,20 +690,20 @@ public class GameInformation {
             return List.of(
                     new Pair<>("floor",
                             new HLOInformation(
-                                    (int)firstInstructionTime.until(hloPlans.get(0).timestamp, MILLIS),
-                                    hloPlans.get(0).mistakes
+                                    (int) firstInstructionTime.until(hloPlans.get(0).timestamp, MILLIS),
+                                    getNumMistakesInTimespan(firstInstructionTime, hloPlans.get(0).timestamp)
                             )
                     ),
                     new Pair<>("railing",
                             new HLOInformation(
                                     (int) hloPlans.get(0).timestamp.until(hloPlans.get(1).timestamp, MILLIS),
-                                    hloPlans.get(1).mistakes - hloPlans.get(0).mistakes
+                                    getNumMistakesInTimespan(hloPlans.get(0).timestamp, hloPlans.get(1).timestamp)
                             )
                     ),
                     new Pair<>("railing",
                             new HLOInformation(
                                     (int) hloPlans.get(1).timestamp.until(hloPlans.get(2).timestamp, MILLIS),
-                                    hloPlans.get(2).mistakes - hloPlans.get(1).mistakes
+                                    getNumMistakesInTimespan(hloPlans.get(1).timestamp, hloPlans.get(2).timestamp)
                             )
                     )
             );
@@ -697,7 +762,7 @@ public class GameInformation {
         String[] steps = blockPlan.split("\n");
         List<Block> currentBlocks = new ArrayList<>();
         List<List<Block>> hloPlans = new ArrayList<>();
-        for (String step: steps) {
+        for (String step : steps) {
             if (step.contains("-starting")) {
                 currentBlocks = new ArrayList<>();
             } else if (step.contains("!place-block")) {
@@ -721,7 +786,7 @@ public class GameInformation {
         String[] steps = blockPlan.split("\n");
         List<Block> currentBlocks = new ArrayList<>();
         List<List<Block>> hloPlans = new ArrayList<>();
-        for (String step: steps) {
+        for (String step : steps) {
             if (step.contains("!build-")) {
                 if (!currentBlocks.isEmpty()) {
                     hloPlans.add(currentBlocks);
@@ -735,7 +800,7 @@ public class GameInformation {
                 currentBlocks.add(new Block(x, y, z));
             }
         }
-        hloPlans.add( currentBlocks);
+        hloPlans.add(currentBlocks);
         return hloPlans;
     }
 
@@ -746,7 +811,7 @@ public class GameInformation {
                 .lines()
                 .collect(Collectors.joining("\n"));
         String[] lines = blockDescriptions.split("\n");
-        for (String line: lines) {
+        for (String line : lines) {
             if (line.startsWith("#")) {
                 continue;
             }
@@ -756,7 +821,7 @@ public class GameInformation {
             int z = Integer.parseInt(blockInfo[2]);
             worldBlocks.add(new Block(x, y, z));
         }
-        return  worldBlocks;
+        return worldBlocks;
     }
 
     /**
@@ -799,12 +864,18 @@ public class GameInformation {
 
         List<Integer> blockDurations = getBlockPlacedDurations();
         StringBuilder durations = new StringBuilder("\n\n# Duration per block");
-        for (int current: blockDurations) {
+        for (int current : blockDurations) {
             durations.append("\n - ").append(current).append("ms");
         }
 
         if (wasSuccessful) {
-            List<Pair<String, HLOInformation>> HLODurations = getHLOInformation();
+            List<Pair<String, HLOInformation>> HLODurations;
+            if(this.hloInformation == null){
+                HLODurations = getHLOInformation();
+                this.hloInformation = HLODurations;
+            } else {
+                HLODurations = this.hloInformation;
+            }
             durations.append("\n\n# Durations per High-level object");
             for (var pair : HLODurations) {
                 durations.append("\n - ").append(pair.getFirst());
@@ -829,7 +900,6 @@ public class GameInformation {
      * - all blocks that were placed in this game until the given timestamp
      * - all blocks that were destroyed in this game until the given timestamp
      * - all blocks that were placed but not destroyed again until the given timestamp
-     *
      */
     public void printBlocksUntilTimestamp(LocalDateTime time) {
         Result<GameLogsRecord> result = jooq.selectFrom(GAME_LOGS)
@@ -844,7 +914,7 @@ public class GameInformation {
         List<Block> destroyedBlocks = new ArrayList<>();
         List<Block> presentBlocks = new ArrayList<>();
 
-        for (GameLogsRecord record: result) {
+        for (GameLogsRecord record : result) {
             Block curBlock = getBlockFromRecord(record);
             if (record.getMessageType().equals("BlockPlacedMessage")) {
                 placedBlocks.add(curBlock);
@@ -858,17 +928,17 @@ public class GameInformation {
         }
 
         System.out.println("Placed Blocks");
-        for (Block block: placedBlocks) {
+        for (Block block : placedBlocks) {
             System.out.println(" - " + block.toString());
         }
 
         System.out.println("Destroyed Blocks");
-        for (Block block: destroyedBlocks) {
+        for (Block block : destroyedBlocks) {
             System.out.println(" - " + block.toString());
         }
 
         System.out.println("Present Blocks");
-        for (Block block: presentBlocks) {
+        for (Block block : presentBlocks) {
             System.out.println(" - " + block.toString());
         }
     }

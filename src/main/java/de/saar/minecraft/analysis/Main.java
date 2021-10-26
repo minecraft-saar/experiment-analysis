@@ -25,6 +25,11 @@ class Main implements Callable<Integer> {
             + "<gameId>")
     private Integer gameId = null;
 
+    @Option(names = "--analysisFromTo", description = "Runs the analysis for the games with IDs between "
+            + "<startId>" + "<endID>")
+    private Integer startID = null;
+    private Integer endID = null;
+
     @Option(names = "--fullAnalysis", description = "Runs the entire experiment analysis which "
             + "includes aggregate analyses per scenario, architect and every scenario-architect "
             + "combination, an analysis for each game and a csv file")
@@ -67,11 +72,7 @@ class Main implements Callable<Integer> {
             experimentAnalysis.makeAnalysis();
             logger.info("Full analysis finished.");
         }
-        if (saveCSV) {
-            logger.info("Starting saving CSV");
-            experimentAnalysis.saveAsCSV();
-            logger.info("CSV saved");
-        }
+
         if (scenarioAnalysis) {
             logger.info("Starting scenario analysis");
             experimentAnalysis.makeScenarioAnalysis();
@@ -97,6 +98,12 @@ class Main implements Callable<Integer> {
             logger.info("Starting analysis for game {}", gameId);
             experimentAnalysis.makeGameAnalysis(gameId);
             logger.info("Analysis finished.");
+        }
+
+        if (saveCSV) {
+            logger.info("Starting saving CSV");
+            experimentAnalysis.saveAsCSV();
+            logger.info("CSV saved");
         }
         return 0;
     }

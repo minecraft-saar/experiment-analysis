@@ -192,7 +192,13 @@ public class AggregateInformation {
             if (!info.wasSuccessful()) {
                 continue;
             }
-            var current = info.getHLOInformation();
+            List<Pair<String, GameInformation.HLOInformation>> current;
+            if(info.hloInformation == null){
+                current = info.getHLOInformation();
+                info.hloInformation = current;
+            } else {
+                current = info.hloInformation;
+            }
             if (addedDurations.isEmpty()) {
                 addedDurations = current.stream()
                         .map((x -> new Pair<String, List<Integer>>(x.getFirst(), new ArrayList<>())))

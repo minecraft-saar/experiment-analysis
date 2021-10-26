@@ -69,7 +69,7 @@ public class ExperimentAnalysis {
         makeArchitectAnalysis();
         makeGameAnalyses();
         makeInstructionLevelAnalysis();
-        saveAsCSV();
+        //saveAsCSV();
 
         for (var scenario: scenarios) {
             for (var architect: architects) {
@@ -200,6 +200,7 @@ public class ExperimentAnalysis {
             File file = new File(basePath.toString(), filename);
             info.writeAnalysis(file);
         }
+        saveAsCSV();
     }
 
     public void makeGameAnalysis(int gameId) throws IOException {
