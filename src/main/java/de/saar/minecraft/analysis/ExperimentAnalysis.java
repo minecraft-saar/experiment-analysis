@@ -212,6 +212,9 @@ public class ExperimentAnalysis {
                 .filter((x) -> x.gameId == gameId)
                 .findFirst()
                 .orElse(null);
+        if(info == null){
+            return;
+        }
         String filename = String.format("game-%d.md", info.gameId);
         File file = new File(basePath.toString(), filename);
         info.writeAnalysis(file);
