@@ -60,7 +60,7 @@ public class WeightEstimator {
         }
         Connection conn = DriverManager.getConnection(connStr, connUser, connPwd);
 
-        var estimator = new WeightEstimator(DSL.using(conn),25,75);
+        var estimator = new WeightEstimator(DSL.using(conn), 25, 75);
         var results = estimator.predictDurationCoeffsFromAllGames();
         System.out.println("global optimum:");
         printWeightMap(results);
@@ -99,7 +99,7 @@ public class WeightEstimator {
         p.y = pdata.right;
         p.l = pdata.left.length;
         p.n = maxFeatureId;
-        Parameter params = new Parameter(SolverType.L2R_L2LOSS_SVR, 500, 0.01);
+        Parameter params = new Parameter(SolverType.L2R_L2LOSS_SVR,  500,  0.01);
         Model m = Linear.train(p, params);
         return m.getFeatureWeights();
     }

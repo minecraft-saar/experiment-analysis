@@ -21,6 +21,7 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import org.apache.commons.lang3.NotImplementedException;
@@ -421,62 +422,62 @@ public class GameInformation {
     /**
      * Returns the instructions given to the user and the time in ms it took the user to complete
      * this instruction.
-     * Each instruction is represented by the derivation tree of the IRTG,
-     * the times are returned as milliseconds between giving the instruction and
-     * the next instruction.
-     * <p>
-     * Correction instructions (e.g. to remove a block again or put a block again that was removed)
-     * are ignored; only instructions that have new=true in their metadata are handled.
+     * Currently only tested for bridge scenarios, if applicable for house scenarios not tested yet
      */
     public List<Pair<String, Integer>> getDurationPerInstruction() {
         List<Pair<String, Integer>> durations = new ArrayList<>();
         var query = jooq.selectFrom(GAME_LOGS)
                 .where(GAME_LOGS.GAMEID.equal(gameId))
-                .orderBy(GAME_LOGS.ID.asc());
+                .orderBy(GAME_LOGS.ID.asc())
+                .fetch();
         String oldInstruction = null;
         LocalDateTime oldTimestamp = null;
+        int skip = 0;
+        int wrongBlocks = 0;
+        int greatMessages = 0;
+        int duration = 0;
+        boolean getTimeAndInstruction = false;
         for (GameLogsRecord record : query) {
-            if (record.getDirection().equals(GameLogsDirection.PassToClient)
-                    && record.getMessageType().equals("TextMessage")) {
-                JsonObject messageJson = JsonParser.parseString(record.getMessage()).getAsJsonObject();
-                if (!messageJson.has("text")) {
-                    continue;
-                }
-
-                if ("SuccessfullyFinished".equals(messageJson.get("newGameState").getAsString())) {
-                    // we are done, record last timing and get out
-                    int duration = (int) oldTimestamp.until(record.getTimestamp(), MILLIS);
-                    durations.add(new Pair<>(oldInstruction, duration));
-                    break;
-                }
-
-                String newInstruction = messageJson.get("text").getAsString();
-
-                if (!newInstruction.startsWith("{")) {
-                    // ignore messages that have no structured information
-                    // those are e.g. welcome messages etc.
-                    continue;
-                }
-
-                JsonObject instructionJson = JsonParser.parseString(newInstruction).getAsJsonObject();
-
-                // also contains the "message" field but we do not need that here
-                boolean isNew = instructionJson.get("new").getAsBoolean();
-                String tree = instructionJson.get("tree").getAsString();
-
-                if (isNew) {
-                    if (oldInstruction == null) {
-                        // first instruction, just save and continue
-                        oldInstruction = tree;
-                        oldTimestamp = record.getTimestamp();
-                        continue;
-                    }
-                    int duration = (int) oldTimestamp.until(record.getTimestamp(), MILLIS);
-                    durations.add(new Pair<>(oldInstruction, duration));
-                    oldInstruction = tree;
+            if (record.getMessageType().equals("TextMessage")) {
+                String instruction = record.getMessage();
+                if (getTimeAndInstruction) {
+                    getTimeAndInstruction = false;
                     oldTimestamp = record.getTimestamp();
+                    oldInstruction = instruction;
+                }
+                if (instruction.contains("Welcome!") || instruction.contains("spacebar") || instruction.contains("correct")) {
+                    skip = 0;
+                    getTimeAndInstruction = true;
+                    continue;
+                } else {
+                    if (instruction.contains("Not there!")) {
+                        skip++;
+                        wrongBlocks++;
+                    } else if (instruction.contains("Great!")) {
+                        if (skip > 0) {
+                            greatMessages++;
+                            skip--;
+                        }
+                        if (instruction.contains("new") && instruction.contains("true")) {
+                            duration = (int) oldTimestamp.until(record.getTimestamp(), MILLIS);
+                            durations.add(new Pair(oldTimestamp + ": " + oldInstruction, duration));
+                            if (instruction.contains("teach") || instruction.contains("finished building")) {
+                                getTimeAndInstruction = true;
+                                continue;
+                            }
+                            oldTimestamp = record.getTimestamp();
+                            oldInstruction = instruction;
+                        }
+                    } else if (instruction.contains("Congratulations")) {
+                        duration = (int) oldTimestamp.until(record.getTimestamp(), MILLIS);
+                        durations.add(new Pair(oldTimestamp + ": " + oldInstruction, duration));
+                        break;
+                    }
                 }
             }
+        }
+        if (greatMessages != wrongBlocks) {
+            System.out.println("Some wrong blocks weren't deleted");
         }
         return durations;
     }
