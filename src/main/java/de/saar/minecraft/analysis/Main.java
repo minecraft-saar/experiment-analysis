@@ -76,7 +76,7 @@ class Main implements Callable<Integer> {
             experimentAnalysis.makeAnalysis();
             logger.info("Full analysis finished.");
         }
-        if(startID != null && endID != null){
+        if (startID != null && endID != null) {
             String dirName = config.getDirName();
             if (! new File(dirName).isDirectory()) {
                 boolean wasCreated = new File(dirName).mkdir();
@@ -85,7 +85,7 @@ class Main implements Callable<Integer> {
                     System.exit(-1);
                 }
             }
-            for(int id = startID; id <= endID; id++){
+            for (int id = startID; id <= endID; id++) {
                 logger.info("Starting analysis for game {}", id);
                 experimentAnalysis.makeGameAnalysis(id);
             }

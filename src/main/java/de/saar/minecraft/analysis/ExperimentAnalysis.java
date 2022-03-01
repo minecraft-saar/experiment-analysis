@@ -16,7 +16,6 @@ import org.jooq.DSLContext;
 import org.jooq.SQLDialect;
 import org.jooq.impl.DSL;
 
-
 public class ExperimentAnalysis {
 
     private static final Logger logger = LogManager.getLogger(ExperimentAnalysis.class);
@@ -56,6 +55,11 @@ public class ExperimentAnalysis {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * full analysis for all scenarios and architects
+     *
+     * @throws IOException from writeAnalysis(...)
+     */
     public void makeAnalysis() throws IOException {
         String dirName = config.getDirName();
         if (! new File(dirName).isDirectory()) {
@@ -69,7 +73,6 @@ public class ExperimentAnalysis {
         makeArchitectAnalysis();
         makeGameAnalyses();
         makeInstructionLevelAnalysis();
-        //saveAsCSV();
 
         for (var scenario: scenarios) {
             for (var architect: architects) {
@@ -82,18 +85,31 @@ public class ExperimentAnalysis {
                         })
                         .filter((gi) -> gi.getScenario().equals(scenario))
                         .collect(Collectors.toList());
-                makeAnalysis(scenario + "-" + architect + ".md", gamedata);
+                writeAnalysis(scenario + "-" + architect + ".md", gamedata);
             }
         }
 
     }
 
-    public void makeAnalysis(String analysisName, List<GameInformation> gi) throws IOException {
+    /**
+     * write some gameanalysis into a file
+     *
+     * @throws IOException from writeAnalysis(file)
+     */
+    public void writeAnalysis(String analysisName, List<GameInformation> gi) throws IOException {
         File file = new File(config.getDirName(), analysisName);
         var info = new AggregateInformation(gi);
         info.writeAnalysis(file);
     }
 
+    /**
+     * partial analysis for all games with the given propoerties
+     *
+     * @param scenario a specific scenario f.ex. bridge
+     * @param architect a specific architect f.ex. weight-time
+     * @param onlySuccessful a boolean to identify successful/ not successful games
+     * @throws IOException from writeAnalysis(...)
+     */
     public void makePartialAnalysis(String scenario, String architect, boolean onlySuccessful) throws IOException {
         List<GameInformation> gamedata = gameInformations;
 
@@ -120,9 +136,14 @@ public class ExperimentAnalysis {
                     .collect(Collectors.toList());
         }
 
-        makeAnalysis(scenario + "-" + architect + "-" + onlySuccessful + ".md", gamedata);
+        writeAnalysis(scenario + "-" + architect + "-" + onlySuccessful + ".md", gamedata);
     }
 
+    /**
+     * aggregate analysis of each scenario
+     *
+     * @throws IOException from writeAnalysis(file)
+     */
     public void makeScenarioAnalysis() throws IOException {
         Path basePath = Paths.get(config.getDirName(), "per_scenario");
         if (!basePath.toFile().isDirectory() && !basePath.toFile().mkdir()) {
@@ -140,7 +161,12 @@ public class ExperimentAnalysis {
             info.writeAnalysis(file);
         }
     }
-    
+
+    /**
+     * analysis of the instruction level of each scenario
+     *
+     * @throws IOException from writeAnalysis(file)
+     */
     public void makeInstructionLevelAnalysis() throws IOException {
         Path basePath = Paths.get(config.getDirName(), "per_InstructionLevel");
         if (!basePath.toFile().isDirectory() && !basePath.toFile().mkdir()) {
@@ -168,6 +194,11 @@ public class ExperimentAnalysis {
         }
     }
 
+    /**
+     * aggregate analysis of each architect
+     *
+     * @throws IOException from writeAnalysis(file)
+     */
     public void makeArchitectAnalysis() throws IOException {
         Path basePath = Paths.get(config.getDirName(), "per_architect");
         if (!basePath.toFile().isDirectory() && !basePath.toFile().mkdir()) {
@@ -190,6 +221,11 @@ public class ExperimentAnalysis {
         }
     }
 
+    /**
+     * analysis of all games
+     *
+     * @throws IOException from saveAsCSV()
+     */
     public void makeGameAnalyses() throws IOException {
         Path basePath = Paths.get(config.getDirName(), "per_game");
         if (!basePath.toFile().isDirectory() && !basePath.toFile().mkdir()) {
@@ -203,6 +239,11 @@ public class ExperimentAnalysis {
         saveAsCSV();
     }
 
+    /**
+     * analysis of one game
+     *
+     * @throws IOException from writeAnalysis(file)
+     */
     public void makeGameAnalysis(int gameId) throws IOException {
         Path basePath = Paths.get(config.getDirName(), "per_game");
         if (!basePath.toFile().isDirectory() && !basePath.toFile().mkdir()) {
@@ -212,7 +253,7 @@ public class ExperimentAnalysis {
                 .filter((x) -> x.gameId == gameId)
                 .findFirst()
                 .orElse(null);
-        if(info == null){
+        if (info == null) {
             return;
         }
         String filename = String.format("game-%d.md", info.gameId);
@@ -222,8 +263,9 @@ public class ExperimentAnalysis {
     }
 
     /**
-     * Saves all game data into a CSV file "data.csv".
-     * @throws IOException
+     * saves game data of all games into a CSV file "data.csv".
+     *
+     * @throws IOException from saveCSV(file)
      */
     public void saveAsCSV() throws IOException {
         File file = new File(config.getDirName(), "data.csv");
@@ -240,8 +282,9 @@ public class ExperimentAnalysis {
     }
 
     /**
-     * Saves all game data into a CSV file "data.csv".
-     * @throws IOException
+     * saves game data for a range of games (inclusive endID) into a CSV file "data.csv".
+     *
+     * @throws IOException from saveCSV(...)
      */
     public void saveAsCSV(int startID, int endID) throws IOException {
         File file = new File(config.getDirName(), "data.csv");

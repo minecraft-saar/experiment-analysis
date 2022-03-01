@@ -5,14 +5,12 @@ import static de.saar.minecraft.broker.db.Tables.GAME_LOGS;
 import static java.time.temporal.ChronoUnit.MILLIS;
 import static java.time.temporal.ChronoUnit.SECONDS;
 
+import com.google.common.collect.HashMultiset;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import com.google.common.collect.HashMultiset;
 import de.saar.coli.minecraft.relationextractor.Block;
-import de.saar.minecraft.broker.db.GameLogsDirection;
 import de.saar.minecraft.broker.db.Tables;
 import de.saar.minecraft.broker.db.tables.records.GameLogsRecord;
-
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileWriter;
@@ -21,12 +19,9 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.time.LocalDateTime;
 import java.util.*;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
-
 import org.apache.commons.lang3.NotImplementedException;
 import org.apache.commons.lang3.math.NumberUtils;
-import org.apache.commons.lang3.tuple.MutablePair;
 import org.apache.commons.math3.util.Pair;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -39,7 +34,7 @@ import org.jooq.Result;
  * This class extracts information from a single game, identified by the game ID.  Most
  * methods should be self-explanatory, but there is one thing you might ask when inspecting the code:
  * Why use multisets to keep track of what is being built in getDurationPerHLO??
- * <p>
+ *
  * It was first implemented with sets, but then we found a game where destroy and place were in
  * the wrong order: place, place, destroy (which is impossible for the same location).
  * It seems like the second place and destroy happened at the same tick and were reported
@@ -52,6 +47,8 @@ public class GameInformation {
     DSLContext jooq;
     boolean countDestroyedAsMistake;
     List<Pair<String, HLOInformation>> hloInformation = null;
+    List<Pair<String, Integer>> instructionDurations = null;
+
     /**
      * The ID of the log message showing that the user was successful.
      */
@@ -75,7 +72,10 @@ public class GameInformation {
         }
     }
 
-    public String getCSVHeader(String separator) {
+    /**
+     * for format details see saveCSV(File file) in AggregateInformation.java
+     */
+    public String getCSVHeader(String separator, int maxInstructionDurationsSize) {
         var sb = new StringBuilder();
         int qnum = 0;
         for (var qa : getNumericQuestions()
@@ -104,14 +104,32 @@ public class GameInformation {
                 .append(separator)
                 .append("numMistakes");
 
-        for (int i = 0; i < 8; i++) {
-            sb.append(separator);
-            sb.append("HLO").append(i);
+        if (getScenario().equals("bridge")) {
+            for (int i = 0; i < 3; i++) {
+                sb.append(separator);
+                sb.append("HLO").append(i);
+            }
+            for (int i = 0; i < 3; i++) {
+                sb.append(separator);
+                sb.append("HLOmistakes").append(i);
+            }
+        } else {
+            //maybe has to be adapted in the future if number of HighLevelObjects bigger than 8
+            for (int i = 0; i < 8; i++) {
+                sb.append(separator);
+                sb.append("HLO").append(i);
+            }
+            for (int i = 0; i < 8; i++) {
+                sb.append(separator);
+                sb.append("HLOmistakes").append(i);
+            }
         }
 
-        for (int i = 0; i < 8; i++) {
+        for (int i = 0; i < maxInstructionDurationsSize; i++) {
             sb.append(separator);
-            sb.append("HLOmistakes").append(i);
+            sb.append("Instruction").append(i);
+            sb.append(separator);
+            sb.append("Time");
         }
 
         for (int i = 0; i < getNumericQuestions().size(); i++) {
@@ -121,12 +139,11 @@ public class GameInformation {
     }
 
     /**
-     * Returns gameid Scenario Architect wassucessful timetosuccess numblocksplaced
-     * numblocksdestroyed nummistakes answers
+     * for format details see saveCSV(File file) in AggregateInformation.java
      *
      * @param separator the separator of the fields
      */
-    public String getCSVLine(String separator) {
+    public String getCSVLine(String separator, int maxInstructionDurationsSize) {
         var sb = new StringBuilder()
                 .append(gameId)
                 .append(separator)
@@ -150,25 +167,62 @@ public class GameInformation {
 
         if (wasSuccessful()) {
             List<Pair<String, HLOInformation>> hloTimings;
-            if(this.hloInformation == null){
+            if (this.hloInformation == null) {
                 hloTimings = getHLOInformation();
                 this.hloInformation = hloTimings;
             } else {
                 hloTimings = this.hloInformation;
             }
-            for (int i = 0; i < 8; i++) {
-                sb.append(separator);
-                if (i < hloTimings.size()) {
-                    sb.append(hloTimings.get(i).getSecond().duration);
-                } else {
-                    sb.append("NA");
+            if (getScenario().equals("bridge")) {
+                for (int i = 0; i < 3; i++) {
+                    sb.append(separator);
+                    if (i < hloTimings.size()) {
+                        sb.append(hloTimings.get(i).getSecond().duration);
+                    } else {
+                        sb.append("NA");
+                    }
+                }
+                for (int i = 0; i < 3; i++) {
+                    sb.append(separator);
+                    if (i < hloTimings.size()) {
+                        sb.append(hloTimings.get(i).getSecond().mistakes);
+                    } else {
+                        sb.append("NA");
+                    }
+                }
+            } else {
+                //maybe has to be adapted in the future if number of HighLevelObjects bigger than 8
+                for (int i = 0; i < 8; i++) {
+                    sb.append(separator);
+                    if (i < hloTimings.size()) {
+                        sb.append(hloTimings.get(i).getSecond().duration);
+                    } else {
+                        sb.append("NA");
+                    }
+                }
+                for (int i = 0; i < 8; i++) {
+                    sb.append(separator);
+                    if (i < hloTimings.size()) {
+                        sb.append(hloTimings.get(i).getSecond().mistakes);
+                    } else {
+                        sb.append("NA");
+                    }
                 }
             }
-            for (int i = 0; i < 8; i++) {
+
+            for (int i = 0; i < maxInstructionDurationsSize; i++) {
                 sb.append(separator);
-                if (i < hloTimings.size()) {
-                    sb.append(hloTimings.get(i).getSecond().mistakes);
+                if ((instructionDurations != null) && (i < instructionDurations.size())) {
+                    Pair<String, Integer> entry = instructionDurations.get(i);
+                    String instruction = entry.getFirst();
+                    String[] instructionList = instruction.split(",");
+                    String ins = instructionList[1];
+                    sb.append(ins.substring(27, ins.length() - 2));
+                    sb.append(separator);
+                    sb.append(entry.getSecond());
                 } else {
+                    sb.append("NA");
+                    sb.append(separator);
                     sb.append("NA");
                 }
             }
@@ -177,13 +231,14 @@ public class GameInformation {
         }
 
         getNumericQuestions().stream().sorted(Comparator.comparing(Pair::getFirst)).forEach(
-                (x) -> {
-                    sb.append(separator);
-                    sb.append(x.getSecond());
-                }
+            (x) -> {
+                sb.append(separator);
+                sb.append(x.getSecond());
+            }
         );
         return sb.append("\n").toString();
     }
+
 
     public String getScenario() {
         return jooq.select(GAMES.SCENARIO)
@@ -192,7 +247,9 @@ public class GameInformation {
                 .fetchOne(GAMES.SCENARIO);
     }
 
-    enum InstructionLevel {BLOCK, TEACHING, HIGHLEVEL}
+    enum InstructionLevel {
+        BLOCK, TEACHING, HIGHLEVEL
+    }
 
     ;
 
@@ -263,7 +320,7 @@ public class GameInformation {
     }
 
     /**
-     * @return number of times the architect messages about a incorrectly placed block
+     * @return number of times the architect messages about an incorrectly placed block
      */
     public int getNumMistakes() {
         if (countDestroyedAsMistake) {
@@ -283,6 +340,9 @@ public class GameInformation {
                 .fetchOne(0, int.class);
     }
 
+    /**
+     * @return number of mistakes in a given timespan
+     */
     public int getNumMistakesInTimespan(LocalDateTime begin, LocalDateTime end) {
 
         Result<Record1<LocalDateTime>> result = jooq.select(GAME_LOGS.TIMESTAMP)
@@ -305,7 +365,7 @@ public class GameInformation {
     }
 
     /**
-     * @return List of question-answer pairs where the answer is a number
+     * @return list of question-answer pairs where the answer is a number
      */
     public List<Pair<String, Integer>> getNumericQuestions() {
         return jooq.selectFrom(Tables.QUESTIONNAIRES)
@@ -318,7 +378,7 @@ public class GameInformation {
     }
 
     /**
-     * @return List of question-answer pairs where the answer is not a number
+     * @return list of question-answer pairs where the answer is not a number
      */
     public List<Pair<String, String>> getFreeformQuestions() {
         return jooq.selectFrom(Tables.QUESTIONNAIRES)
@@ -331,7 +391,7 @@ public class GameInformation {
     }
 
     /**
-     * @return True if the game was successfully finished, false if stopped early
+     * @return true if the game was successfully finished, false if stopped early
      */
     public boolean wasSuccessful() {
         return successMessageID < Long.MAX_VALUE;
@@ -351,8 +411,8 @@ public class GameInformation {
     }
 
     /**
-     * Returns the duration until the user logged out.  Note: This may be much longer than
-     * until task completion!
+     * returns the duration until the user logged out.
+     * Note: This may be much longer than until task completion!
      *
      * @return Seconds elapsed between login and logout
      */
@@ -363,7 +423,7 @@ public class GameInformation {
     }
 
     /**
-     * @return the first Timestamp of the game
+     * @return the first timestamp of the game
      */
     public LocalDateTime getStartTime() {
         return jooq.select(GAME_LOGS.TIMESTAMP)
@@ -422,10 +482,11 @@ public class GameInformation {
     /**
      * Returns the instructions given to the user and the time in ms it took the user to complete
      * this instruction.
-     * Currently only tested for bridge scenarios, if applicable for house scenarios not tested yet
+     * Currently only tested for bridge scenarios,
+     * should also be applicable for house scenarios, but not tested yet
      */
-    public List<Pair<String, Integer>> getDurationPerInstruction() {
-        List<Pair<String, Integer>> durations = new ArrayList<>();
+    public void getDurationPerInstruction() {
+        instructionDurations = new ArrayList<>();
         var query = jooq.selectFrom(GAME_LOGS)
                 .where(GAME_LOGS.GAMEID.equal(gameId))
                 .orderBy(GAME_LOGS.ID.asc())
@@ -445,7 +506,8 @@ public class GameInformation {
                     oldTimestamp = record.getTimestamp();
                     oldInstruction = instruction;
                 }
-                if (instruction.contains("Welcome!") || instruction.contains("spacebar") || instruction.contains("correct")) {
+                if (instruction.contains("Welcome!")
+                        || instruction.contains("spacebar") || instruction.contains("correct")) {
                     skip = 0;
                     getTimeAndInstruction = true;
                     continue;
@@ -460,7 +522,7 @@ public class GameInformation {
                         }
                         if (instruction.contains("new") && instruction.contains("true")) {
                             duration = (int) oldTimestamp.until(record.getTimestamp(), MILLIS);
-                            durations.add(new Pair(oldTimestamp + ": " + oldInstruction, duration));
+                            instructionDurations.add(new Pair(oldTimestamp + ": " + oldInstruction, duration));
                             if (instruction.contains("teach") || instruction.contains("finished building")) {
                                 getTimeAndInstruction = true;
                                 continue;
@@ -470,7 +532,7 @@ public class GameInformation {
                         }
                     } else if (instruction.contains("Congratulations")) {
                         duration = (int) oldTimestamp.until(record.getTimestamp(), MILLIS);
-                        durations.add(new Pair(oldTimestamp + ": " + oldInstruction, duration));
+                        instructionDurations.add(new Pair(oldTimestamp + ": " + oldInstruction, duration));
                         break;
                     }
                 }
@@ -479,20 +541,21 @@ public class GameInformation {
         if (greatMessages != wrongBlocks) {
             System.out.println("Some wrong blocks weren't deleted");
         }
-        return durations;
     }
 
     /**
-     * Reads a Block*Message and returns a Block with the same coordinates
+     * reads a BlockMessage and returns a Block with the same coordinates
      *
-     * @param record: a GamesLogsRecord for a BlockPlaced- or BlockDestroyedMessage
+     * @param record a GamesLogsRecord for a BlockPlaced- or BlockDestroyedMessage
      */
     private Block getBlockFromRecord(GameLogsRecord record) {
         JsonObject json = JsonParser.parseString(record.getMessage()).getAsJsonObject();
         // If Block logs are incomplete, the missing values are the default 0
         // This should only occur for games that were played before
         // TODO: date of setting up infrastructure commit 96b2fde on the server
-        int x = 0, y = 0, z = 0;
+        int x = 0;
+        int y = 0;
+        int z = 0;
         if (json.has("x")) {
             x = json.get("x").getAsInt();
         } else {
@@ -543,6 +606,7 @@ public class GameInformation {
      * HLO starts when the previous HLO is finished (or for the first with the welcome message).</p>
      */
     public List<Pair<String, HLOInformation>> getHLOInformation() {
+        instructionDurations = new ArrayList<>();
         if (!wasSuccessful()) {
             return List.of();
         }
@@ -615,15 +679,18 @@ public class GameInformation {
                             }
                         }
                         if (record.getMessage().contains("Not there! please remove that block again")
-                                || record.getMessage().contains("Please add this block again."))
+                                || record.getMessage().contains("Please add this block again.")) {
                             numMistakes += 1;
-
-                        if (record.getMessage().contains("Congratulations, you are done building")) { // the game is complete, i.e. the last HLO was completed.
+                        }
+                        if (record.getMessage().contains("Congratulations, you are done building")) {
+                            // the game is complete, i.e. the last HLO was completed.
                             if (hloPlans.get(hloPlans.size() - 1).timestamp == null) {
                                 hloPlans.get(hloPlans.size() - 1).timestamp = record.getTimestamp();
                                 hloPlans.get(hloPlans.size() - 1).mistakes = numMistakes;
                             } else if (hloPlans.get(hloPlans.size() - 2).timestamp == null) {
-                            } else if (hloPlans.get(hloPlans.size() - 2).timestamp.until(hloPlans.get(hloPlans.size() - 1).timestamp, MILLIS) < 0) {
+                                //checkstyle needs something here
+                            } else if (hloPlans.get(hloPlans.size() - 2).timestamp
+                                            .until(hloPlans.get(hloPlans.size() - 1).timestamp, MILLIS) < 0) {
                                 hloPlans.get(hloPlans.size() - 1).timestamp = record.getTimestamp();
                                 hloPlans.get(hloPlans.size() - 1).mistakes = numMistakes;
                             }
@@ -649,21 +716,21 @@ public class GameInformation {
                 dataExtracted = true;
             } else {
                 //there was some problem in the game with regard to block placement/destruction timing
-                //so we extract the latest time at which a block in the hlo was placed since this must be the
-                //time our system assumed the construction was finished, regardless of the current state of the minecraft world
-                if(wasSuccessful()){
+                //so we extract the latest time at which a block in the hlo was placed since this
+                // must be the time our system assumed the construction was finished,
+                // regardless of the current state of the minecraft world
+                if (wasSuccessful()) {
                     for (HLOGatherer hlo : hloPlans) {
                         if (hlo.timestamp == null) {
                             LocalDateTime latestTimestamp = firstInstructionTime;
                             for (Block b : hlo.blocks) {
                                 LocalDateTime tmp = blocksTime.get(b);
-                                if(tmp == null) {
+                                if (tmp == null) {
                                     continue;
                                 }
-                                if(latestTimestamp == null){
+                                if (latestTimestamp == null) {
                                     latestTimestamp = tmp;
-                                }
-                                else if (latestTimestamp.isBefore(tmp)) {
+                                } else if (latestTimestamp.isBefore(tmp)) {
                                     latestTimestamp = tmp;
                                 }
                             }
@@ -755,6 +822,10 @@ public class GameInformation {
         return List.of();
     }
 
+    /**
+     * @return list of coordinates of blocks for each highlevelobject
+     *     if instructions are per block
+     */
     private List<List<Block>> readBlockPlan(String filename) {
         InputStream inputStream = GameInformation.class.getResourceAsStream(filename);
         String blockPlan = new BufferedReader(new InputStreamReader(inputStream))
@@ -779,6 +850,10 @@ public class GameInformation {
         return hloPlans;
     }
 
+    /**
+     * @return list of coordinates of blocks for each highlevelobject
+     *     if instructions are highlevel
+     */
     private List<List<Block>> readHighlevelPlan(String filename) {
         InputStream inputStream = GameInformation.class.getResourceAsStream(filename);
         String blockPlan = new BufferedReader(new InputStreamReader(inputStream))
@@ -805,6 +880,9 @@ public class GameInformation {
         return hloPlans;
     }
 
+    /**
+     * @return set of blocks given in the inital world
+     */
     private Set<Block> readInitialWorld(String filename) {
         Set<Block> worldBlocks = new HashSet<>();
         InputStream inputStream = GameInformation.class.getResourceAsStream(filename);
@@ -826,7 +904,7 @@ public class GameInformation {
     }
 
     /**
-     * Writes the results of the evaluation methods above to a provided markdown file.
+     * writes the results of the evaluation methods above to a provided markdown file.
      */
     public void writeAnalysis(File file) throws IOException {
         FileWriter writer = new FileWriter(file);
@@ -870,21 +948,21 @@ public class GameInformation {
         }
 
         if (wasSuccessful) {
-            List<Pair<String, HLOInformation>> HLODurations;
-            if(this.hloInformation == null){
-                HLODurations = getHLOInformation();
-                this.hloInformation = HLODurations;
+            List<Pair<String, HLOInformation>> hloDurations;
+            if (this.hloInformation == null) {
+                hloDurations = getHLOInformation();
+                this.hloInformation = hloDurations;
             } else {
-                HLODurations = this.hloInformation;
+                hloDurations = this.hloInformation;
             }
             durations.append("\n\n# Durations per High-level object");
-            for (var pair : HLODurations) {
+            for (var pair : hloDurations) {
                 durations.append("\n - ").append(pair.getFirst());
                 durations.append(" : ").append(pair.getSecond().duration);
                 durations.append("ms");
             }
 
-            List<Pair<String, Integer>> instructionDurations = getDurationPerInstruction();
+            getDurationPerInstruction();
             durations.append("\n\n# Durations per Instruction");
             for (var pair : instructionDurations) {
                 durations.append("\n - ").append(pair.getFirst());
@@ -897,7 +975,7 @@ public class GameInformation {
     }
 
     /**
-     * Prints three lists to the console.
+     * prints three lists to the console.
      * - all blocks that were placed in this game until the given timestamp
      * - all blocks that were destroyed in this game until the given timestamp
      * - all blocks that were placed but not destroyed again until the given timestamp

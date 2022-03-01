@@ -1,17 +1,11 @@
 package de.saar.minecraft.analysis;
 
+import static de.saar.minecraft.broker.db.Tables.GAMES;
+import static de.saar.minecraft.broker.db.Tables.GAME_LOGS;
+
 import com.google.gson.JsonParser;
 import de.bwaldvogel.liblinear.*;
 import de.saar.basic.Pair;
-// import org.apache.commons.math3.stat.regression.OLSMultipleLinearRegression;
-
-import org.apache.commons.math3.stat.descriptive.SummaryStatistics;
-import org.apache.commons.math3.stat.descriptive.UnivariateStatistic;
-import org.apache.commons.math3.stat.descriptive.moment.Mean;
-import org.apache.commons.math3.stat.descriptive.rank.Percentile;
-import org.jooq.DSLContext;
-import org.jooq.impl.DSL;
-
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
@@ -19,9 +13,13 @@ import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.stream.Collectors;
+import org.apache.commons.math3.stat.descriptive.SummaryStatistics;
+import org.apache.commons.math3.stat.descriptive.UnivariateStatistic;
+import org.apache.commons.math3.stat.descriptive.moment.Mean;
+import org.apache.commons.math3.stat.descriptive.rank.Percentile;
+import org.jooq.DSLContext;
+import org.jooq.impl.DSL;
 
-import static de.saar.minecraft.broker.db.Tables.GAMES;
-import static de.saar.minecraft.broker.db.Tables.GAME_LOGS;
 
 public class WeightEstimator {
     /*
@@ -54,7 +52,7 @@ public class WeightEstimator {
         if (args.length >= 2) {
             connUser = args[1];
         }
-        String connPwd ="";
+        String connPwd = "";
         if (args.length >= 3) {
             connPwd = args[2];
         }
@@ -110,13 +108,16 @@ public class WeightEstimator {
     public Map<String, Double> linearRegressionResultToGrammarDurations(double[] coeffs) {
         Map<String, Double> result = new HashMap<>();
         for (var entry: featureMap.entrySet()) {
-            result.put(entry.getKey(), coeffs[entry.getValue()-1]);
+            result.put(entry.getKey(), coeffs[entry.getValue() - 1]);
         }
         return result;
     }
 
     public Map<String, Double> predictDurationCoeffsFromAllGames() {
-        var flatData = allData.stream().reduce(new ArrayList<>(), (x, y) -> { x.addAll(y); return x;});
+        var flatData = allData.stream().reduce(new ArrayList<>(), (x, y) -> {
+            x.addAll(y);
+            return x;
+        });
         var coeffs = runLinearRegression(flatData);
         return linearRegressionResultToGrammarDurations(coeffs);
     }
@@ -129,14 +130,17 @@ public class WeightEstimator {
         for (var entry: featureMap.entrySet()) {
             double from = bootResult.lowerbound[entry.getValue() - 1];
             double to =  bootResult.upperbound[entry.getValue() - 1];
-            result.put(entry.getKey(), r.nextDouble()*(to-from) + from);
+            result.put(entry.getKey(), r.nextDouble() * (to - from) + from);
         }
         return result;
     }
 
 
     public double[][] perElementBootstrap(int numRuns) {
-        var flatData = allData.stream().reduce(new ArrayList<>(), (x, y) -> { x.addAll(y); return x;});
+        var flatData = allData.stream().reduce(new ArrayList<>(), (x, y) -> {
+            x.addAll(y);
+            return x;
+        });
         int n = flatData.size();
         var random = new Random();
         random.setSeed(1L);
@@ -162,7 +166,12 @@ public class WeightEstimator {
             this.upperbound = new double[numFeatures];
         }
     }
-    
+
+    /**
+     *
+     * @param bootstrapResult a given bootstrap
+     * @return the statistics to a given bootstrap
+     */
     public BootstrapResult statisticsFromBootstrap(double[][] bootstrapResult) {
         UnivariateStatistic lowerBound = new Percentile(lowerPercentile);
         UnivariateStatistic upperBound = new Percentile(higherPercentile);
@@ -290,7 +299,7 @@ public class WeightEstimator {
         var y = new double[data.size()];
         int index = 0;
         for (var instruction: data) {
-            int[] featureCounts = new int[this.maxFeatureId+1];
+            int[] featureCounts = new int[this.maxFeatureId + 1];
             for (var feat: instruction.left) {
                 featureCounts[featureMap.get(feat)] += 1;
             }
@@ -304,10 +313,10 @@ public class WeightEstimator {
             y[index] = instruction.right;
             index++;
         }
-        return new Pair<>(x,y);
+        return new Pair<>(x, y);
     }
     
-    private static void printWeightMap(Map<String,Double> map) {
+    private static void printWeightMap(Map<String, Double> map) {
         map.entrySet().stream().sorted(Comparator.comparing(Map.Entry::getKey)).forEach((entry) ->
                 System.out.println(entry.getKey() + ": " + entry.getValue())
         );

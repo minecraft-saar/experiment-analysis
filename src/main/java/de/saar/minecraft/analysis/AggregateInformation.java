@@ -1,5 +1,7 @@
 package de.saar.minecraft.analysis;
 
+import static java.lang.Integer.max;
+
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
@@ -9,7 +11,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.stream.Collectors;
-
 import org.apache.commons.math3.stat.descriptive.DescriptiveStatistics;
 import org.apache.commons.math3.util.Pair;
 import org.apache.logging.log4j.LogManager;
@@ -33,8 +34,18 @@ public class AggregateInformation {
 
     /**
      * Saves all game informations in a csv file with the format
+     *
+     * scenario house:
      * gameid, scenario, architect, wasSuccessful, timeToSuccess, numBlocksPlaced,
-     * numBlocksDestroyed, numMistakes, HLO1, ... , HLO7, question 1, ..., question n
+     * numBlocksDestroyed, numMistakes, HLO0, ... , HLO7,
+     * Instruction 0, Time 0, ... , Instruction m, Time m
+     * question 1, ..., question n
+     *
+     * scenario bridge:
+     * gameid, scenario, architect, wasSuccessful, timeToSuccess, numBlocksPlaced,
+     * numBlocksDestroyed, numMistakes, HLO0, ... , HLO2,
+     * Instruction 0, Time 0, ... , Instruction m, Time m
+     * question 1, ..., question n
      *
      * @param file a csv file
      * @throws IOException if it cannot write to the provided file
@@ -45,19 +56,36 @@ public class AggregateInformation {
                     + "matching games.");
             return;
         }
+        int maxInstructionDurationsSize = 0;
+        for (var g : games) {
+            if (g.instructionDurations == null) {
+                g.getDurationPerInstruction();
+            }
+            maxInstructionDurationsSize = max(g.instructionDurations.size(), maxInstructionDurationsSize);
+        }
         var sep = ",";
         FileWriter writer = new FileWriter(file);
-        writer.write(games.get(0).getCSVHeader(sep));
+        writer.write(games.get(0).getCSVHeader(sep, maxInstructionDurationsSize));
         for (var g : games) {
-            writer.write(g.getCSVLine(sep));
+            writer.write(g.getCSVLine(sep, maxInstructionDurationsSize));
         }
         writer.close();
     }
 
     /**
-     * Saves all game informations in a csv file with the format
+     * Saves all game informations over a range of games (inclusive endID) in a csv file with the format
+     *
+     * scenario house:
      * gameid, scenario, architect, wasSuccessful, timeToSuccess, numBlocksPlaced,
-     * numBlocksDestroyed, numMistakes, HLO1, ... , HLO7, question 1, ..., question n
+     * numBlocksDestroyed, numMistakes, HLO0, ... , HLO7,
+     * Instruction 0, Time 0, ... , Instruction m, Time m
+     * question 1, ..., question n
+     *
+     * scenario bridge:
+     * gameid, scenario, architect, wasSuccessful, timeToSuccess, numBlocksPlaced,
+     * numBlocksDestroyed, numMistakes, HLO0, ... , HLO2,
+     * Instruction 0, Time 0, ... , Instruction m, Time m
+     * question 1, ..., question n
      *
      * @param file a csv file
      * @throws IOException if it cannot write to the provided file
@@ -70,22 +98,40 @@ public class AggregateInformation {
         }
         var sep = ",";
         FileWriter writer = new FileWriter(file);
-        writer.write(games.get(0).getCSVHeader(sep));
+        int maxInstructionDurationsSize = 0;
         for (int id = startID; id <= endID; id++) {
             int finalId = id;
             var g = games.stream().filter((x) -> finalId == x.gameId).findFirst().orElse(null);
             if (g == null) {
                 continue;
             }
-            writer.write(g.getCSVLine(sep));
+            if (g.instructionDurations == null) {
+                g.getDurationPerInstruction();
+            }
+            maxInstructionDurationsSize = max(g.instructionDurations.size(), maxInstructionDurationsSize);
+        }
+        writer.write(games.get(0).getCSVHeader(sep, maxInstructionDurationsSize));
+        for (int id = startID; id <= endID; id++) {
+            int finalId = id;
+            var g = games.stream().filter((x) -> finalId == x.gameId).findFirst().orElse(null);
+            if (g == null) {
+                continue;
+            }
+            writer.write(g.getCSVLine(sep, maxInstructionDurationsSize));
         }
         writer.close();
     }
 
+    /**
+     * @return total number of games in the given database
+     */
     public int getNumGames() {
         return games.size();
     }
 
+    /**
+     * @return averaged game duration of all games
+     */
     public float getAverageGameDuration() {
         List<Long> durations = new ArrayList<>();
         for (GameInformation info : games) {
@@ -97,6 +143,9 @@ public class AggregateInformation {
         return sum / durations.size();
     }
 
+    /**
+     * @return fraction of successfully finished games
+     */
     public float getFractionSuccessfulGames() {
         int numSuccessFull = 0;
         for (GameInformation info : games) {
@@ -107,6 +156,9 @@ public class AggregateInformation {
         return (float) numSuccessFull / games.size();
     }
 
+    /**
+     * @return averaged number of mistakes of all games
+     */
     public float getAverageNumMistakes() {
         int totalMistakes = 0;
         for (GameInformation info : games) {
@@ -115,6 +167,9 @@ public class AggregateInformation {
         return (float) totalMistakes / games.size();
     }
 
+    /**
+     * @return averaged number of blocks placed of all games
+     */
     public float getAverageNumBlocksPlaced() {
         int totalBlocks = 0;
         for (GameInformation info : games) {
@@ -123,6 +178,9 @@ public class AggregateInformation {
         return (float) totalBlocks / games.size();
     }
 
+    /**
+     * @return averaged number of blocks destroyed of all games
+     */
     public float getAverageNumBlocksDestroyed() {
         int totalBlocks = 0;
         for (GameInformation info : games) {
@@ -132,7 +190,7 @@ public class AggregateInformation {
     }
 
     /**
-     * @return Fraction of players that made at least one mistake
+     * @return fraction of players that made at least one mistake
      */
     public float getFractionMistakes() {
         int withMistakes = 0;
@@ -146,7 +204,7 @@ public class AggregateInformation {
 
     /**
      * @return a map with number of mistakes as keys and the number of player that made this
-     * amount as values
+     *     amount as values
      */
     public Map<Integer, Integer> getMistakeDistribution() {
         TreeMap<Integer, Integer> distribution = new TreeMap<>();
@@ -158,8 +216,8 @@ public class AggregateInformation {
     }
 
     /**
-     * Computes answer distributions for Likert questions.
-     * For each question: question text, mean, standard deviation, median, minimum, maximum
+     * cmputes answer distributions for Likert questions.
+     *     for each question: question text, mean, standard deviation, median, minimum, maximum
      *
      * @return a list with the values above for each question
      */
@@ -192,7 +250,7 @@ public class AggregateInformation {
 
     /**
      * @return a hashmap with questions as keys and a list of free text answers to that question
-     * as values
+     *     as values
      */
     public HashMap<String, List<String>> getAllFreeTextResponses() {
         HashMap<String, List<String>> collection = new HashMap<>();
@@ -210,14 +268,15 @@ public class AggregateInformation {
     }
 
     /**
-     * Works only if all games have the same scenario, otherwise it returns null.
+     * works only if all games have the same scenario, otherwise it returns null.
      *
-     * @return A list of high-level object names and the average duration in milliseconds for
-     * building them
+     * @return a list of high-level object names and the average duration in milliseconds for
+     *     building them
      */
     public List<Pair<String, Integer>> getAverageDurationPerHLO() {
-        if (skipHLOAnalysis)
+        if (skipHLOAnalysis) {
             return null;
+        }
         List<Pair<String, List<Integer>>> addedDurations = new ArrayList<>();
         for (GameInformation info : games) {
             if (!info.wasSuccessful()) {
@@ -239,7 +298,8 @@ public class AggregateInformation {
                 String objectName = current.get(i).getFirst();
                 int newDuration = current.get(i).getSecond().duration;
                 if (!addedDurations.get(i).getFirst().equals(objectName)) {
-                    logger.error("wrong high-level object, is: " + addedDurations.get(i).getFirst() + " expected: " + objectName);
+                    logger.error("wrong high-level object, is: "
+                            + addedDurations.get(i).getFirst() + " expected: " + objectName);
                     throw new RuntimeException("HLO mismatch");
                 }
                 var durations = addedDurations.get(i).getSecond();
@@ -254,7 +314,7 @@ public class AggregateInformation {
     }
 
     /**
-     * Computes the aggregate analysis and saves it in a markdown file.
+     * computes the aggregate analysis and saves it in a markdown file.
      *
      * @param file a markdown file
      * @throws IOException if it cannot write to the provided file
@@ -333,6 +393,10 @@ public class AggregateInformation {
         writer.close();
     }
 
+    /**
+     * helper class for function getAnswerDistribution() [this file]
+     *
+     */
     public static class Answer {
         private String question;
         private double mean;
