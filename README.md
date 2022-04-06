@@ -59,7 +59,7 @@ This csv file is also the input for the R-notebook `analysis.rmd`
 
 `--singleGameAnalysis=<gameId>`: Runs the analysis for the game with the given game id
 
-`--analysisFrom <gameId1>= --analysisTo=<gameId2>`: Runs the analysis for the games with IDs between gameId1(inclusive) and gameId2(exclusive)
+`--analysisFrom <gameId1>= --analysisTo=<gameId2>`: Runs the analysis for the games with IDs between gameId1 and gameId2 (both inclusive)
 
 `-V, --version`: Print version information and exit.
 
