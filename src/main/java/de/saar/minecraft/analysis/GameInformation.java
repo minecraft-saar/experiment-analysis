@@ -965,7 +965,10 @@ public class GameInformation {
             getDurationPerInstruction();
             durations.append("\n\n# Durations per Instruction");
             for (var pair : instructionDurations) {
-                durations.append("\n - ").append(pair.getFirst());
+                String instruction = pair.getFirst();
+                String[] instructionList = instruction.split(",");
+                String ins = instructionList[1].substring(27, instructionList[1].length() - 2);
+                durations.append("\n - ").append(ins);
                 durations.append(" : ").append(pair.getSecond());
                 durations.append("ms");
             }
