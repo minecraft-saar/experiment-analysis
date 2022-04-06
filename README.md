@@ -59,6 +59,8 @@ This csv file is also the input for the R-notebook `analysis.rmd`
 
 `--singleGameAnalysis=<gameId>`: Runs the analysis for the game with the given game id
 
+`--analysisFrom <gameId1>= --analysisTo=<gameId2>`: Runs the analysis for the games with IDs between gameId1(inclusive) and gameId2(exclusive)
+
 `-V, --version`: Print version information and exit.
 
 ## Evaluation files
@@ -77,7 +79,12 @@ Then follows a table with the following columns:
 - numMistakes
 - HLO0 (time needed to complete high-level object 1)
 - ...
-- HL07
+- HL0N (N = number of HighLevelInstructions of Object - 1)
+- Instruction0 (text form of instruction)
+- Time (time needed to complete  the before listed instruction)
+- ...
+- InstructionN (N = maximal number of instruction of all games analysed - 1)
+- Time
 - Question0
 - ...
 - QuestionN:
@@ -108,9 +115,8 @@ it was built before the previous object.
   (with the welcome message for the first HLO) and ends when all blocks of the HLO
   are present, regardless of the instructions. If HLOs were built in a wrong order,
   durations can be negative.
- - Durations per Instruction: *implementation not finished*
- - Durations per Block Instruction: *implementation not finished*
-
+ - Durations per Instruction: For each instruction, the text of the instruction and the time the user needed to build it. The duration of each instruction ends when a new instruction for another block or object was created. This method is able to ignore misplaced blocks that weren't deleted by the user.
+  
 ### Aggregate analysis Markdown files
  - Number of games (with this filter)
  - Average game duration
