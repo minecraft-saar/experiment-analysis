@@ -81,10 +81,10 @@ Then follows a table with the following columns:
 - ...
 - HL0N (N = number of HighLevelInstructions of Object - 1)
 - Instruction0 (text form of instruction)
-- Time (time needed to complete  the before listed instruction)
+- Time (time needed to complete  the Instruction0)
 - ...
 - InstructionN (N = maximal number of instruction of all games analysed - 1)
-- Time
+- Time (time needed to complete  the InstructionN)
 - Question0
 - ...
 - QuestionN:
