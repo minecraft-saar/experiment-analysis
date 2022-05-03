@@ -10,7 +10,7 @@ group 'de.saar.minecraft'
 description 'analysis'
 version '1.0'
 
-sourceCompatibility = 1.11
+sourceCompatibility = 1.17
 
 mainClassName = "de.saar.minecraft.analysis.Main"
 
@@ -47,9 +47,9 @@ dependencies {
     implementation 'com.google.guava:guava:30.1.1-jre'
     implementation 'de.bwaldvogel:liblinear:2.42'
 
-    implementation group: 'de.saar.minecraft.infrastructure', name: 'networking', version: '1.2.0'
-    implementation group: 'de.saar.minecraft.infrastructure', name: 'broker', version: '1.2.0'
-    implementation group: 'de.saar.minecraft', name: 'minecraft-nlg', version: '1.2.1'
+    implementation group: 'de.saar.minecraft.infrastructure', name: 'networking', version: '1.2.9'
+    implementation group: 'de.saar.minecraft.infrastructure', name: 'broker', version: '1.2.9'
+    implementation group: 'de.saar.minecraft', name: 'minecraft-nlg', version: '1.2.4'
     runtimeOnly 'de.saar.minecraft:shared-resources:1.1.17'
 }
 
